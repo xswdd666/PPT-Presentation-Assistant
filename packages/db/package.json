@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@deck-rehearsal/contracts": "workspace:*"
+    "@deck-rehearsal/contracts": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.6.2"
   }
 }

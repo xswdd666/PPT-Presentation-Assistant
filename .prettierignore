@@ -1,0 +1,8 @@
+node_modules
+coverage
+dist
+pnpm-lock.yaml
+*.pptx
+Deck-Rehearsal-*.md
+ppt-review-*.md
+development/tasks/*.md

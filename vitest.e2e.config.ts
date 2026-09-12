@@ -1,0 +1,8 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    include: ["apps/**/*.e2e.test.ts", "packages/**/*.e2e.test.ts"],
+    passWithNoTests: true,
+  },
+});

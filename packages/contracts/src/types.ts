@@ -14,6 +14,8 @@ export type IsoDateTime = string;
 
 export const SCENARIOS = [
   "work_report",
+  "solution_review",
+  "product_launch",
   "project_report",
   "performance_review",
   "resource_request",
@@ -142,6 +144,9 @@ export interface Slide {
   id: SlideId;
   deckVersionId: DeckVersionId;
   sourceStableId: string;
+  width?: number;
+  height?: number;
+  contentHash?: string;
   index: number;
   hidden: boolean;
   purpose?: SlidePurpose;

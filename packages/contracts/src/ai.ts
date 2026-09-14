@@ -140,3 +140,31 @@ export interface VersionedRewrite extends SelectionRewrite {
 export interface AiSnapshotReader {
   getSnapshot(projectId: string): Promise<AnalysisSnapshot>;
 }
+
+export interface AnalysisGeneration {
+  id: string;
+  projectId: string;
+  deckVersionId: string;
+  state: GenerationState;
+  processedSlides: number;
+  totalSlides: number;
+  error?: AiFailure;
+}
+export interface AsyncAnalysisGateway {
+  submitAnalysis(
+    projectId: string,
+    deckVersionId: string,
+    idempotencyKey: string,
+  ): Promise<AnalysisGeneration>;
+  getAnalysisResult(
+    projectId: string,
+    generationId: string,
+  ): Promise<{
+    generation: AnalysisGeneration;
+    result: AnalysisRun | undefined;
+  }>;
+  retryAnalysis(
+    projectId: string,
+    generationId: string,
+  ): Promise<AnalysisGeneration>;
+}

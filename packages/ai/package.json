@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./runtime": "./src/runtime.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@deck-rehearsal/contracts": "workspace:*"
+    "@deck-rehearsal/contracts": "workspace:*",
+    "zod": "^4.6.2"
   }
 }

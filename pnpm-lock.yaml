@@ -35,13 +35,23 @@ importers:
 
   apps/web: {}
 
-  apps/worker: {}
+  apps/worker:
+    dependencies:
+      '@deck-rehearsal/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
+      '@deck-rehearsal/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
 
   packages/ai:
     dependencies:
       '@deck-rehearsal/contracts':
         specifier: workspace:*
         version: link:../contracts
+      zod:
+        specifier: ^4.6.2
+        version: 4.6.2
 
   packages/contracts: {}
 

@@ -25,4 +25,13 @@ export default tseslint.config(
       "@typescript-eslint/no-confusing-void-expression": "off",
     },
   },
+  {
+    files: ["apps/web/src/client/**/*.tsx"],
+    rules: {
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true },
+      ],
+    },
+  },
 );

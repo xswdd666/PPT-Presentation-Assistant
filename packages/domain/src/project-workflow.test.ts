@@ -16,12 +16,13 @@ describe("project workflow", () => {
     const ids = new IncrementingIdGenerator();
     const repository = new InMemoryWorkflowRepository();
     const storage = new InMemoryObjectStorage();
+    const pptx = new PassthroughPptxProcessor();
     const workflow = new DefaultProjectWorkflow({
       repository,
       storage,
       queue: new InMemoryJobQueue(ids),
       model: new DeterministicModelGateway(),
-      pptx: new PassthroughPptxProcessor(),
+      pptx,
       clock: new FixedClock(),
       ids,
     });
@@ -59,6 +60,7 @@ describe("project workflow", () => {
       ],
     };
     await repository.saveSlides(version.id, [slide]);
+    pptx.parse = () => Promise.resolve({ slides: [slide], pageCount: 1 });
 
     const analysis = await workflow.startAnalysis(project.id);
     expect(analysis.job.totalSlides).toBe(1);

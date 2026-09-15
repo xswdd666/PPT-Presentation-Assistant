@@ -91,7 +91,13 @@ export class LocalRewriteService {
       if (
         !currentScript ||
         currentScript.revision !== request.scriptRevision ||
-        !selectionMatches(request.selection, currentScript.text)
+        !(
+          selectionMatches(request.selection, currentScript.text) ||
+          (currentScript.text === "" &&
+            request.selection.selectedText === "" &&
+            request.selection.startOffset === 0 &&
+            request.selection.endOffset === 0)
+        )
       )
         fail("version_conflict", "讲稿或选区已变化");
       const previousScript = snapshot.documents[slides[index - 1]?.id ?? ""],
@@ -102,6 +108,14 @@ export class LocalRewriteService {
         context,
         currentSlide,
         currentScript,
+        ...(slides[index - 1] ? { previousSlide: slides[index - 1] } : {}),
+        ...(slides[index + 1] ? { nextSlide: slides[index + 1] } : {}),
+        ...(currentScript.text === ""
+          ? {
+              intent:
+                "根据当前页及相邻页的已有事实补写本页讲稿，作为建议供用户确认。",
+            }
+          : {}),
         ...(previousScript ? { previousScript } : {}),
         ...(nextScript ? { nextScript } : {}),
       });

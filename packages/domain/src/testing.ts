@@ -196,7 +196,7 @@ export class FixedClock implements Clock {
 }
 
 export class PassthroughPptxProcessor implements PptxProcessor {
-  public parse() {
+  public parse(): ReturnType<PptxProcessor["parse"]> {
     return Promise.resolve({ slides: [], pageCount: 0 });
   }
 

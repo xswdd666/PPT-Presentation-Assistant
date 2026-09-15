@@ -58,13 +58,13 @@ export type IssueStatus =
   | "open"
   | "accepted"
   | "ignored"
-  | "pending_review"
+  | "needs_review"
   | "resolved"
   | "persists"
   | "invalid";
 export type DeckVersionStatus =
   "processing" | "current" | "superseded" | "failed";
-export type RewriteStatus = "pending" | "accepted" | "rejected" | "failed";
+export type RewriteStatus = "proposed" | "accepted" | "rejected" | "failed";
 export type ChangeSetStatus = "draft" | "committed" | "abandoned";
 export type ScriptStatus =
   "queued" | "generating" | "completed" | "failed" | "stale";
@@ -138,6 +138,10 @@ export interface SlideElement {
   text?: string;
   editable: boolean;
   contentHash: string;
+  readOnlyReason?: string;
+  fontSize?: number;
+  color?: string;
+  bold?: boolean;
 }
 
 export interface Slide {
@@ -304,6 +308,8 @@ export interface AnalysisJob {
 export interface LayoutWarning {
   slideId: SlideId;
   kind: "overflow" | "overlap" | "layout_shift";
+  elementId?: string;
+  pageIndex?: number;
   message: string;
   severity: Severity;
 }

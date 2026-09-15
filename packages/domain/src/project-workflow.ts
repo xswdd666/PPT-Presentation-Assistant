@@ -250,7 +250,7 @@ export class DefaultProjectWorkflow implements ProjectWorkflow {
       projectId: input.projectId,
       selection: input.selection,
       ...output,
-      status: "pending",
+      status: "proposed",
       createdAt: this.dependencies.clock.now(),
     };
     await this.dependencies.repository.saveRewrite(proposal);
@@ -259,6 +259,12 @@ export class DefaultProjectWorkflow implements ProjectWorkflow {
 
   public async acceptRewrite(proposalId: string): Promise<ChangeSet> {
     const proposal = await this.requirePendingRewrite(proposalId);
+    invariant(
+      (await this.getCurrentVersion(proposal.projectId)) ===
+        proposal.selection.deckVersionId,
+      "version_conflict",
+      "The proposal belongs to an older version",
+    );
     const changeSet = await this.getOrCreateChangeSet(
       proposal.projectId,
       proposal.selection.deckVersionId,
@@ -351,11 +357,8 @@ export class DefaultProjectWorkflow implements ProjectWorkflow {
       status: "superseded",
     });
     await this.dependencies.repository.saveVersion(version);
-    const slides = await this.dependencies.repository.getSlides(current.id);
-    await this.dependencies.repository.saveSlides(
-      version.id,
-      slides.map((slide) => ({ ...slide, deckVersionId: version.id })),
-    );
+    const parsed = await this.dependencies.pptx.parse(content, version.id);
+    await this.dependencies.repository.saveSlides(version.id, parsed.slides);
     const context = await this.dependencies.repository.getContext(current.id);
     if (context) {
       await this.dependencies.repository.saveContext({
@@ -446,9 +449,9 @@ export class DefaultProjectWorkflow implements ProjectWorkflow {
     const proposal = await this.dependencies.repository.getRewrite(id);
     invariant(proposal, "rewrite_not_found", "Rewrite proposal was not found");
     invariant(
-      proposal.status === "pending",
+      proposal.status === "proposed",
       "rewrite_already_decided",
-      "Rewrite proposal is no longer pending",
+      "Rewrite proposal is no longer awaiting a decision",
     );
     return proposal;
   }

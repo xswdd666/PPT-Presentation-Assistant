@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { elementStyle } from "../slide-rewrite/selection.js";
 import type { ReactNode } from "react";
 import type {
   ScriptDocument,
@@ -96,14 +97,21 @@ export function ThumbnailRail({
               onSelect(id);
             }}
           >
-            <div className="mini-slide">
-              <span>
-                {s.elements.find((e) => e.text)?.text?.slice(0, 48) ??
-                  "未命名页面"}
-              </span>
-              <i />
-              <i />
-              <i />
+            <div className="mini-slide" aria-hidden="true">
+              {s.elements
+                .filter((e) => e.text)
+                .map((e) => (
+                  <span
+                    key={e.id}
+                    className="mini-element"
+                    style={{
+                      ...elementStyle(s, e),
+                      color: "#153557",
+                    }}
+                  >
+                    {e.text}
+                  </span>
+                ))}
             </div>
             <span className="thumb-caption">
               {String(s.index).padStart(2, "0")}

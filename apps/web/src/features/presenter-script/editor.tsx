@@ -1,4 +1,10 @@
 import { RichText } from "./rich-text.js";
+import { ArticleIcon as Article } from "@phosphor-icons/react/Article";
+import { SparkleIcon as Sparkle } from "@phosphor-icons/react/Sparkle";
+import { TextBIcon as TextB } from "@phosphor-icons/react/TextB";
+import { TextUnderlineIcon as TextUnderline } from "@phosphor-icons/react/TextUnderline";
+import { TextAUnderlineIcon as TextAUnderline } from "@phosphor-icons/react/TextAUnderline";
+import { HighlighterIcon as Highlighter } from "@phosphor-icons/react/Highlighter";
 import { useEffect, useRef, useState } from "react";
 import type {
   ScriptDocument,
@@ -152,7 +158,7 @@ export function PresenterScriptEditor({
       <header>
         <div>
           <h3>
-            本页汇报稿 <small>第 {slide.index} 页</small>
+            <Article size={20} /> 本页汇报稿 <small>第 {slide.index} 页</small>
           </h3>
           <span className="muted">把画面上的信息，变成自然的讲述。</span>
         </div>
@@ -162,31 +168,35 @@ export function PresenterScriptEditor({
       </header>
       <div className="script-tools">
         <Button title="加粗" aria-label="加粗" onClick={() => mark("bold")}>
-          <b>B</b>
+          <TextB size={18} />
         </Button>
         <Button
           title="下划线"
           aria-label="下划线"
           onClick={() => mark("underline")}
         >
-          <u>U</u>
+          <TextUnderline size={18} />
         </Button>
         <Button
           title="钢蓝文字"
           aria-label="文字颜色：钢蓝"
           onClick={() => mark("color", "#426581")}
         >
-          A
+          <TextAUnderline size={18} />
         </Button>
         <Button
           title="浅黄色高亮"
           aria-label="文字高亮：浅黄色"
           onClick={() => mark("highlight", "#eee4b7")}
         >
-          高亮
+          <Highlighter size={18} />
         </Button>
-        <Button onClick={() => void choose()}>
-          {doc.text ? "✦ 改写选区" : "✦ 补写本页讲稿"}
+        <Button
+          aria-label={doc.text ? "✦ 改写选区" : "✦ 补写本页讲稿"}
+          onClick={() => void choose()}
+        >
+          <Sparkle size={18} weight="fill" />
+          {doc.text ? "AI 重写" : "AI 补写"}
         </Button>
         <Button onClick={() => void persist()}>保存</Button>
         <span>

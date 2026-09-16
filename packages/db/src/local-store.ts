@@ -94,7 +94,26 @@ export class LocalWorkspaceStore {
             flag: "wx",
             mode: 0o600,
           });
-          await rename(temp, resolve(directory, "workspace.json"));
+          // Windows readers (including UI polling) can briefly deny replacement.
+          // Retry only the atomic commit, never the callback or a delete of the old snapshot.
+          const commitDeadline = Date.now() + 5000;
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await rename(temp, resolve(directory, "workspace.json"));
+              break;
+            } catch (error) {
+              if (
+                !["EPERM", "EACCES", "EBUSY"].includes(
+                  (error as NodeJS.ErrnoException).code ?? "",
+                ) ||
+                Date.now() >= commitDeadline
+              )
+                throw error;
+              await new Promise((done) =>
+                setTimeout(done, Math.min(10 * (attempt + 1), 100)),
+              );
+            }
+          }
           return structuredClone(result);
         } finally {
           await unlink(temp)
@@ -186,6 +205,11 @@ export class LocalObjectStorage implements ObjectStorage {
   }
   async get(key: string) {
     return new Uint8Array(await readFile(this.path(key)));
+  }
+  async delete(key: string) {
+    await unlink(this.path(key)).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    });
   }
   createSignedDownloadUrl(): Promise<string> {
     return Promise.reject(new Error("本地文件通过版本下载接口访问"));

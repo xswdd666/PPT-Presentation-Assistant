@@ -8,6 +8,17 @@ import { OpenXmlPptxProcessor } from "./index.js";
 import { makeFixture } from "./testing.js";
 const engine = new OpenXmlPptxProcessor();
 describe("real PPTX contract", () => {
+  it("extracts original embedded PNG by stable slide and image identifiers", async () => {
+    const file = await makeFixture(1, true);
+    const slide = present((await engine.parse(file, "v1")).slides[0]);
+    const picture = present(slide.elements.find((e) => e.kind === "image"));
+    const media = await engine.image(file, slide.id, picture.id);
+    expect(media.type).toBe("image/png");
+    expect([...media.content.slice(0, 8)]).toEqual([
+      137, 80, 78, 71, 13, 10, 26, 10,
+    ]);
+    await expect(engine.image(file, slide.id, "missing")).rejects.toThrow();
+  });
   it.each([1, 15, 30, 60])(
     "parses %i pages with stable identifiers and notes",
     async (count) => {

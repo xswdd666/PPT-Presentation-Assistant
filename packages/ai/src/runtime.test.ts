@@ -18,6 +18,38 @@ import {
 } from "./testing.js";
 afterEach(() => vi.unstubAllGlobals());
 describe("analysis workflow", () => {
+  it("analyzes up to three pages concurrently and preserves ordered results", async () => {
+    const model = new MockReviewModel();
+    const analyze = model.analyzePage.bind(model);
+    let active = 0,
+      maximum = 0;
+    model.analyzePage = async (input) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      await new Promise((done) => setTimeout(done, 10));
+      const result = await analyze(input);
+      active--;
+      return result;
+    };
+    const counts: number[] = [];
+    const result = await new AnalysisPipeline(model).run(
+      fixture(6),
+      (count) => {
+        counts.push(count);
+        return Promise.resolve();
+      },
+    );
+    expect(maximum).toBe(3);
+    expect(counts).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(result.pages.map((p) => p.slideId)).toEqual([
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+    ]);
+  });
   it.each([
     "work_report",
     "performance_review",
@@ -105,7 +137,7 @@ describe("analysis workflow", () => {
       { ...a, reviewerId: "olivia" },
       { ...a, suggestedAction: "提供对照组" },
     ]);
-    expect(grouped).toHaveLength(2);
+    expect(grouped).toHaveLength(3);
     expect(() =>
       validateAnalysis(
         { ...raw, comments: [{ ...a, slideId: "missing" }] },
@@ -124,7 +156,8 @@ describe("schemas and transport", () => {
         >
       ).analysis?.type,
     ).toBe("object");
-    expect(commentBodySchema.safeParse("中".repeat(49)).success).toBe(false);
+    expect(commentBodySchema.safeParse("").success).toBe(true);
+    expect(commentBodySchema.safeParse("中".repeat(49)).success).toBe(true);
     expect(commentBodySchema.safeParse("中".repeat(50)).success).toBe(true);
     expect(commentBodySchema.safeParse("中".repeat(101)).success).toBe(false);
     expect(commentBodySchema.safeParse("👨‍👩‍👧‍👦".repeat(50)).success).toBe(true);

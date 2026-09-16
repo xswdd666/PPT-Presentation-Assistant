@@ -126,7 +126,12 @@ export class WorkspaceWorkerStore implements WorkerStore {
           job.stage = "completed";
           job.processedSlides = job.totalSlides;
         } else {
-          state.stage = generation.state === "queued" ? "queued" : "analyzing";
+          state.stage =
+            generation.state === "queued"
+              ? "queued"
+              : job.processedSlides >= job.totalSlides
+                ? "generating_review"
+                : "analyzing";
           job.stage =
             generation.state === "queued"
               ? "upload_completed"

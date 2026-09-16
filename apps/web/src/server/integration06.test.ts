@@ -45,6 +45,78 @@ async function analyze(service: IntegratedWorkspaceService, id: string) {
   await service.processNext();
   expect((await service.snapshot(id)).uploadState.stage).toBe("completed");
 }
+it("keeps accepted PPT rewrites in an editable draft until the user explicitly submits a version", async () => {
+  const { service, project } = await setup();
+  let view = await service.snapshot(project.id);
+  const slide = requireValue(view.slides[1]);
+  const element = requireValue(
+    slide.elements.find((candidate) => candidate.text?.startsWith("本季度")),
+  );
+  const proposal = await service.suggest(project.id, "ppt", {
+    deckVersionId: requireValue(view.version).id,
+    slideId: slide.id,
+    elementId: element.id,
+    startOffset: 0,
+    endOffset: 3,
+    selectedText: "本季度",
+  });
+  await service.accept(
+    project.id,
+    proposal.id,
+    "accept-draft",
+    "本季度（经确认）",
+  );
+  view = await service.snapshot(project.id);
+  expect(view.versions).toHaveLength(1);
+  expect(view.draft?.operations).toHaveLength(1);
+  expect(
+    view.slides[1]?.elements.find((candidate) => candidate.id === element.id)
+      ?.text,
+  ).toContain("本季度（经确认）");
+  await service.undoDraft(project.id, "undo-draft");
+  expect((await service.snapshot(project.id)).draft?.operations).toHaveLength(
+    0,
+  );
+  const second = await service.suggest(project.id, "ppt", proposal.selection);
+  await service.accept(project.id, second.id, "accept-again");
+  const committed = await service.commitDraft(
+    project.id,
+    requireValue((await service.snapshot(project.id)).version).id,
+    "commit-draft",
+  );
+  expect(committed.versionNumber).toBe(2);
+  expect((await service.snapshot(project.id)).draft).toBeUndefined();
+});
+
+it("deletes a project and its local PPTX files through the project HTTP API", async () => {
+  const { service, project } = await setup();
+  const view = await service.snapshot(project.id);
+  const sourceKey = requireValue(
+    (await service.store.read()).sources[
+      requireValue(view.version).sourceFileId
+    ],
+  ).storageKey;
+  const versionKey = requireValue(view.version).storageKey;
+  const server = createApplication(service);
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const base =
+    "http://127.0.0.1:" + String((server.address() as AddressInfo).port);
+  try {
+    const response = await fetch(base + "/api/projects/" + project.id, {
+      method: "DELETE",
+      headers: { "idempotency-key": "delete-project" },
+    });
+    expect(response.status).toBe(204);
+    expect((await fetch(base + "/api/projects/" + project.id)).status).toBe(
+      404,
+    );
+    await expect(service.storage.get(sourceKey)).rejects.toThrow();
+    await expect(service.storage.get(versionKey)).rejects.toThrow();
+  } finally {
+    await new Promise<void>((done) => server.close(() => done()));
+  }
+});
+
 it("06 real modules: analysis, durable replies, rejected/accepted edits, script annotations and export", async () => {
   const { service, model, legacy, project, file, dir } = await setup();
   await analyze(service, project.id);
@@ -115,7 +187,12 @@ it("06 real modules: analysis, durable replies, rejected/accepted edits, script 
     service.accept(project.id, proposal.id, proposal.id),
   ]);
   await expect(service.accept(project.id, stale.id, stale.id)).rejects.toThrow(
-    "版本已变化",
+    "建议不存在",
+  );
+  await service.commitDraft(
+    project.id,
+    requireValue((await service.snapshot(project.id)).version).id,
+    "commit-accepted",
   );
   await service.saveDocument(project.id, {
     ...document,
@@ -199,6 +276,33 @@ it.each([1, 15, 30, 60])(
   },
   30000,
 );
+
+it("retry reuses parsed slides and successful AI pages", async () => {
+  const { service, project, model } = await setup(3);
+  const parse = vi.spyOn(service.pptx, "parse");
+  const pages = vi
+    .spyOn(model, "analyzePage")
+    .mockRejectedValueOnce(new Error("temporary failure"));
+  vi.spyOn(model, "synthesize").mockRejectedValueOnce(
+    new Error("temporary synthesis failure"),
+  );
+  await service.analyze(project.id, "", "", "analysis");
+  await service.processNext();
+  const view = await service.snapshot(project.id);
+  expect(view.uploadState.stage).toBe("failed");
+  expect(pages).toHaveBeenCalledTimes(3);
+  await service.retryAnalysis(
+    project.id,
+    requireValue(view.job).id,
+    "retry-cache",
+  );
+  await service.processNext();
+  expect((await service.snapshot(project.id)).uploadState.stage).toBe(
+    "completed",
+  );
+  expect(pages).toHaveBeenCalledTimes(4);
+  expect(parse).not.toHaveBeenCalled();
+});
 
 it("06 analysis failure/cancel and reply retry retain one user turn and release write transactions", async () => {
   const { service, project, model } = await setup(1);

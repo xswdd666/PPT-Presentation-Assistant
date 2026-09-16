@@ -124,6 +124,46 @@ function isEditable(shape: Element) {
   );
 }
 export class OpenXmlPptxProcessor implements PptxProcessor {
+  private readonly imageArchives = new Map<string, ReturnType<typeof open>>();
+  async image(file: Uint8Array, slideId: string, imageId: string) {
+    const digest = createHash("sha256").update(file).digest("hex");
+    let archive = this.imageArchives.get(digest);
+    if (!archive) {
+      if (this.imageArchives.size >= 2) {
+        const oldest = this.imageArchives.keys().next().value;
+        if (oldest) this.imageArchives.delete(oldest);
+      }
+      archive = open(file);
+      this.imageArchives.set(digest, archive);
+      void archive.catch(() => this.imageArchives.delete(digest));
+    }
+    const { zip, paths } = await archive;
+    const path = paths.find((path) => stableId(path) === slideId);
+    if (!path) throw new Error("页面不存在");
+    const doc = await read(zip, path);
+    const pic = all(doc, P, "pic").find(
+      (pic) => elementId(slideId, pic) === imageId,
+    );
+    const embed = pic && first(pic, A, "blip")?.getAttributeNS(R, "embed");
+    const rel = (await relationships(zip, path)).find(
+      (rel) =>
+        rel.getAttribute("Id") === embed &&
+        rel.getAttribute("Type")?.endsWith("/image"),
+    );
+    if (!rel) throw new Error("内嵌图片不存在");
+    const mediaPath = targetPath(path, rel.getAttribute("Target") ?? "");
+    const mime: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+    };
+    const type = mime[posix.extname(mediaPath).toLowerCase()];
+    const media = zip.file(mediaPath);
+    if (!type || !media) throw new Error("图片格式暂不支持网页显示");
+    return { content: await media.async("uint8array"), type };
+  }
   async parse(file: Uint8Array, versionId: string) {
     const { zip, presentation, paths } = await open(file);
     const size = first(presentation, P, "sldSz");

@@ -7,16 +7,12 @@ export const displayLength = (value: string) =>
     .length;
 export const normalized = (value: string) => value.trim().replace(/\s+/g, " ");
 export const text = z.string().trim().min(1).max(8000);
-export const commentBodySchema = text
+export const commentBodySchema = z
+  .string()
   .transform(normalized)
-  .refine(
-    (s) => displayLength(s) >= 50 && displayLength(s) <= 100,
-    "主评论必须为 50–100 个显示字符",
-  );
+  .refine((s) => displayLength(s) <= 100, "主评论最多 100 个显示字符");
 export const replySchema = z.object({
-  body: text
-    .transform(normalized)
-    .refine((s) => displayLength(s) >= 30 && displayLength(s) <= 180),
+  body: commentBodySchema,
 });
 export const roleSchema = z.enum([
   "jack",
@@ -124,6 +120,41 @@ export function fail(code: AiFailure["code"], message: string): never {
   });
 }
 export function safeFailure(error: unknown): AiFailure {
+  if (
+    error instanceof TypeError &&
+    error.cause &&
+    typeof error.cause === "object" &&
+    "code" in error.cause &&
+    [
+      "UND_ERR_CONNECT_TIMEOUT",
+      "ECONNREFUSED",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ECONNRESET",
+    ].includes(String(error.cause.code))
+  ) {
+    return {
+      code: "model_unavailable",
+      message:
+        "无法连接模型服务（连接超时或网络不可达），请检查网络或代理后重试；已保存页面将复用",
+      retryable: true,
+      recovery: "retry",
+    };
+  }
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    "syscall" in error &&
+    ["EPERM", "EACCES", "EBUSY"].includes(String(error.code)) &&
+    error.syscall === "rename"
+  ) {
+    return {
+      code: "model_unavailable",
+      message: "本地进度保存受阻，已保存的页面会保留，请稍后重试",
+      retryable: true,
+      recovery: "retry",
+    };
+  }
   return error instanceof AiError
     ? error.failure
     : {

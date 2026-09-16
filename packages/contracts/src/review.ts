@@ -1,3 +1,4 @@
+import type { PageAnalysis } from "./ai.js";
 import type {
   DeckContext,
   ReviewComment,
@@ -23,6 +24,10 @@ export interface ReviewThread {
 }
 export interface ReviewThreadInput {
   thread: ReviewThread;
+  /** All messages in this reviewer's isolated project-version conversation. */
+  reviewerComments: ReviewComment[];
+  reviewerReplies: ReviewReply[];
+  pageAnalyses?: PageAnalysis[];
   context: DeckContext;
   slides: Slide[];
 }

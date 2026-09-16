@@ -136,9 +136,10 @@ it("05 browser: selection, zoom, cancel, diff, real acceptance, script formattin
     });
     await page.getByRole("button", { name: "接受修改", exact: true }).click();
     await ui(page.getByRole("dialog")).toHaveCount(0);
-    await vi.waitFor(async () =>
-      expect((await service.snapshot(project.id)).versions).toHaveLength(2),
-    );
+    await ui(page.getByRole("button", { name: "提交为新版本" })).toBeVisible();
+    await page.getByRole("button", { name: "提交为新版本" }).click();
+    await ui(page.getByRole("button", { name: "提交为新版本" })).toHaveCount(0);
+    expect((await service.snapshot(project.id)).versions).toHaveLength(2);
     const editor = page.getByRole("textbox", { name: "本页汇报稿正文" });
     await editor.fill("验收专用结论，再说依据");
     await editor.evaluate((node) => {

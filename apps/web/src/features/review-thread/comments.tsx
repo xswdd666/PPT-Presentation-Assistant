@@ -1,4 +1,7 @@
 import { stableRequestKey } from "../../client/upload.js";
+import { ChatCircleIcon as ChatCircle } from "@phosphor-icons/react/ChatCircle";
+import { LinkIcon as Link } from "@phosphor-icons/react/Link";
+import { ArrowLeftIcon as ArrowLeft } from "@phosphor-icons/react/ArrowLeft";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   AsyncReviewGateway,
@@ -17,6 +20,50 @@ const roles: Record<string, { name: string; title: string }> = {
   leo: { name: "Leo", title: "交付与工程负责人" },
   sophie: { name: "Sophie", title: "目标听众代表" },
 };
+function CommentLoading({ label = "正在加载评审…" }: { label?: string }) {
+  return (
+    <div
+      className="comment-skeletons"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <p className="comment-loading-label">
+        <span className="comment-loading-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+        {label}
+      </p>
+      {[0, 1, 2].map((index) => (
+        <div className="comment-skeleton" key={index} aria-hidden="true">
+          <div className="skeleton-author">
+            <div className="skeleton-avatar" />
+            <div className="skeleton-identity">
+              <span className="skeleton-bar skeleton-name" />
+              <span className="skeleton-bar skeleton-role" />
+            </div>
+          </div>
+          <span className="skeleton-bar" />
+          <span className="skeleton-bar" />
+          <span className="skeleton-bar skeleton-short" />
+          <span className="skeleton-bar skeleton-actions" />
+        </div>
+      ))}
+    </div>
+  );
+}
+function Avatar({ id }: { id: string }) {
+  const female = ["olivia", "mia", "emma", "sophie"].includes(id);
+  return (
+    <img
+      className={`avatar avatar-${id}`}
+      src={`/assets/avatars/${female ? "olivia" : "ryan"}.png`}
+      alt=""
+    />
+  );
+}
 function isConflict(error: unknown) {
   return (
     (error instanceof ReviewRequestError && error.status === 409) ||
@@ -57,20 +104,22 @@ function Comment({
   const slide = data.slides.find((s) => s.id === c.relatedSlideIds[0]);
   return (
     <article className="comment">
-      <span className={`avatar avatar-${c.reviewerId}`} aria-hidden="true">
-        {role?.name[0] ?? "AI"}
-      </span>
+      <Avatar id={c.reviewerId} />
       <div className="comment-main">
         <div className="comment-author">
           <b>{role?.name ?? c.reviewerId}</b>
           <span>AI 点评人</span>
+          <span className="page-badge">
+            第 {String(slide?.index ?? "—")} 页
+          </span>
+          <time dateTime={c.createdAt}>
+            {new Date(c.createdAt).toLocaleTimeString("zh-CN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
         </div>
-        <small>
-          {role?.title ?? c.reviewerId} · 第 {String(slide?.index ?? "—")} 页
-        </small>
-        <time className="basis" dateTime={c.createdAt}>
-          {new Date(c.createdAt).toLocaleString("zh-CN")}
-        </time>
+        <small>{role?.title ?? c.reviewerId}</small>
         {onOpen ? (
           <button
             id={`comment-${c.id}`}
@@ -83,31 +132,45 @@ function Comment({
           <p className="comment-body">{c.body}</p>
         )}
         {!onOpen && (
-          <div className="evidence">
-            <p>
-              <b>依据</b>
-              {c.evidence}
-            </p>
-            <p>
-              <b>影响</b>
-              {c.impact}
-            </p>
-            <p>
-              <b>建议</b>
-              {c.suggestedAction}
-            </p>
-          </div>
+          <details className="evidence">
+            <summary>查看评审依据</summary>
+            <div>
+              <p>
+                <b>依据</b>
+                {c.evidence}
+              </p>
+              <p>
+                <b>影响</b>
+                {c.impact}
+              </p>
+              <p>
+                <b>建议</b>
+                {c.suggestedAction}
+              </p>
+            </div>
+          </details>
         )}
         <div className="comment-actions">
           <button
+            onClick={() =>
+              onOpen
+                ? onOpen(c.id)
+                : document.getElementById("review-reply")?.focus()
+            }
+          >
+            <ChatCircle size={18} />
+            回复
+          </button>
+          <button
+            aria-label={`⌖ 定位第 ${String(slide?.index ?? "—")} 页`}
             disabled={!slide}
             onClick={() => {
               if (slide) onLocate(slide.id);
             }}
           >
-            ⌖ 定位第 {String(slide?.index ?? "—")} 页
+            <Link size={18} />
+            定位页面
           </button>
-          {onOpen && <button onClick={() => onOpen(c.id)}>回复 ↗</button>}
         </div>
         <span className="basis">
           基于 V
@@ -167,12 +230,16 @@ export function Comments({
         ?.focus({ preventScroll: true });
     if (!commentId && list.current) {
       list.current.scrollTop = scroll.current;
-      if (focusId.current)
-        document
-          .getElementById(`comment-${focusId.current}`)
-          ?.focus({ preventScroll: true });
+      if (focusId.current) {
+        const target = document.getElementById(`comment-${focusId.current}`);
+        if (target) {
+          const group = target.closest("details");
+          if (group instanceof HTMLDetailsElement) group.open = true;
+          target.focus({ preventScroll: true });
+        }
+      }
     }
-  }, [commentId]);
+  }, [commentId, comments, loading]);
   function open(id: string) {
     scroll.current = list.current?.scrollTop ?? 0;
     focusId.current = id;
@@ -191,34 +258,31 @@ export function Comments({
     next.searchParams.delete("comment");
     navigate(next.pathname + next.search);
   }
+  const reviewerGroups = Array.from(
+    comments.reduce((groups, comment) => {
+      const group = groups.get(comment.reviewerId) ?? [];
+      group.push(comment);
+      groups.set(comment.reviewerId, group);
+      return groups;
+    }, new Map<string, ReviewComment[]>()),
+  );
   return (
     <>
       <header className="review-heading">
         {commentId ? (
-          <button className="back" onClick={back}>
-            ← 评论详情
+          <button className="back" aria-label="← 评论详情" onClick={back}>
+            <ArrowLeft size={20} /> 评论详情
           </button>
         ) : (
           <>
-            <span className="eyebrow">REVIEW ROOM</span>
-            <h2>听听不同的视角。</h2>
-            <p>AI 模拟听众，与你一起打磨这次汇报。</p>
+            <h2>评审意见</h2>
             <small>{comments.length} 条评论</small>
           </>
         )}
       </header>
-      <div
-        ref={list}
-        className="comment-list"
-        hidden={!!commentId}
-        onScroll={(e) => {
-          if (!commentId) scroll.current = e.currentTarget.scrollTop;
-        }}
-      >
-        {loading ? (
-          <p role="status" className="comment-empty">
-            正在加载评审…
-          </p>
+      <div ref={list} className="comment-list" hidden={!!commentId}>
+        {loading && !comments.length ? (
+          <CommentLoading />
         ) : error ? (
           <div className="comment-empty" role="alert">
             <p>{error}</p>
@@ -226,16 +290,55 @@ export function Comments({
               重试加载
             </button>
           </div>
+        ) : !comments.length &&
+          data.job &&
+          [
+            "queued",
+            "analyzing",
+            "parsing",
+            "rendering",
+            "visual_understanding",
+            "global_analysis",
+            "routing",
+            "comment_generation",
+          ].includes(data.job.stage) ? (
+          <CommentLoading label="评审人正在阅读文稿，生成评论…" />
         ) : comments.length ? (
-          comments.map((c) => (
-            <Comment
-              key={c.id}
-              comment={c}
-              data={data}
-              onLocate={onLocate}
-              onOpen={open}
-            />
-          ))
+          <>
+            {reviewerGroups.map(([reviewerId, reviewerComments]) => {
+              return (
+                <section className="reviewer-comment-group" key={reviewerId}>
+                  {reviewerComments.slice(0, 1).map((comment) => (
+                    <Comment
+                      key={comment.id}
+                      comment={comment}
+                      data={data}
+                      onLocate={onLocate}
+                      onOpen={open}
+                    />
+                  ))}
+                  {reviewerComments.length > 1 && (
+                    <details className="reviewer-more">
+                      <summary>
+                        更多评论（{reviewerComments.length - 1}）
+                      </summary>
+                      <div className="reviewer-comments">
+                        {reviewerComments.slice(1).map((comment) => (
+                          <Comment
+                            key={comment.id}
+                            comment={comment}
+                            data={data}
+                            onLocate={onLocate}
+                            onOpen={open}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </section>
+              );
+            })}
+          </>
         ) : (
           <div className="comment-empty">
             <h3>还没有评论</h3>
@@ -299,6 +402,7 @@ function ThreadDetail({
     }
   });
   const nearBottom = useRef(true);
+  const threadOpened = useRef(false);
   const alive = useRef(true);
   const inFlight = useRef(false);
   const replyKey = useRef(crypto.randomUUID());
@@ -376,7 +480,13 @@ function ThreadDetail({
     generationId,
   ]);
   useLayoutEffect(() => {
-    if (nearBottom.current && scroll.current)
+    if (!thread || !scroll.current) return;
+    if (!threadOpened.current) {
+      threadOpened.current = true;
+      scroll.current.scrollTop = 0;
+      return;
+    }
+    if (nearBottom.current)
       scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [thread, optimistic, busy, sendError]);
   async function send() {
@@ -457,12 +567,7 @@ function ThreadDetail({
         </button>
       </div>
     );
-  if (!thread)
-    return (
-      <p className="comment-empty" role="status">
-        正在加载对话…
-      </p>
-    );
+  if (!thread) return <CommentLoading label="正在加载对话…" />;
   const role = roles[thread.comment.reviewerId];
   const generating =
     busy || ["queued", "generating"].includes(thread.generation);
@@ -480,21 +585,44 @@ function ThreadDetail({
         <Comment comment={thread.comment} data={data} onLocate={onLocate} />
         {thread.replies.map((r) => (
           <article className={`reply ${r.author}`} key={r.id}>
-            <span className="avatar" aria-hidden="true">
-              {r.author === "user" ? "我" : role?.name[0]}
-            </span>
+            <Avatar
+              id={r.author === "user" ? "user" : thread.comment.reviewerId}
+            />
             <div>
-              <b>{r.author === "user" ? "我" : role?.name}</b>
+              <div className="comment-author">
+                <b>{r.author === "user" ? "我" : role?.name}</b>
+                {r.author !== "user" && <span>AI 点评人</span>}
+              </div>
+              <span className="reply-role">
+                {r.author === "user" ? "汇报人" : role?.title}
+              </span>
               <p>{r.body}</p>
               <small>{r.basis}</small>
+              <div className="comment-actions">
+                <button
+                  onClick={() =>
+                    document.getElementById("review-reply")?.focus()
+                  }
+                >
+                  <ChatCircle size={18} />
+                  回复
+                </button>
+                <button
+                  onClick={() => {
+                    const id = thread.comment.relatedSlideIds[0];
+                    if (id) onLocate(id);
+                  }}
+                >
+                  <Link size={18} />
+                  定位页面
+                </button>
+              </div>
             </div>
           </article>
         ))}
         {optimistic && (
           <article className="reply user">
-            <span className="avatar" aria-hidden="true">
-              我
-            </span>
+            <Avatar id="user" />
             <div>
               <b>我</b>
               <p>{optimistic}</p>
@@ -556,7 +684,7 @@ function ThreadDetail({
         <textarea
           id="review-reply"
           value={body}
-          placeholder={`回复 ${role?.title ?? thread.comment.reviewerId}…`}
+          placeholder={`回复 ${role?.name ?? thread.comment.reviewerId}…`}
           maxLength={4000}
           disabled={busy}
           onChange={(e) => {

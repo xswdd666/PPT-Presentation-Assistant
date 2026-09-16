@@ -156,13 +156,21 @@ describe("persistent real-file workflow", () => {
     await service.accept(project.id, suggestion.id, "accept");
     await service.accept(project.id, suggestion.id, "accept");
     snapshot = await service.snapshot(project.id);
+    expect(snapshot.versions).toHaveLength(1);
+    expect(snapshot.draft?.operations).toHaveLength(1);
+    await service.commitDraft(
+      project.id,
+      present(snapshot.version).id,
+      "commit",
+    );
+    snapshot = await service.snapshot(project.id);
     expect(snapshot.versions).toHaveLength(2);
     expect(
       snapshot.slides[1]?.elements.find((e) => e.id === element.id)?.text,
     ).toContain("本期");
     expect(snapshot.warnings.length).toBeGreaterThan(0);
     await expect(service.accept(project.id, stale.id, "stale")).rejects.toThrow(
-      "版本已变化",
+      "建议不存在或已经接受",
     );
     expect(await service.download(project.id, uploaded.version.id)).toEqual(
       file,

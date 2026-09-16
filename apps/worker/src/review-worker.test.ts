@@ -34,6 +34,79 @@ const request = {
   idempotencyKey: "key1",
 };
 describe("thread workflow", () => {
+  it("shares history within one reviewer and excludes every other reviewer", async () => {
+    const { worker, model, store } = await setup();
+    await store.transaction((d) => {
+      const sameReviewer = {
+        ...comment(),
+        id: "c2",
+        issueId: "i2",
+        createdAt: "2026-09-14T00:01:00Z",
+      };
+      const otherReviewer = {
+        ...comment(),
+        id: "c3",
+        issueId: "i3",
+        reviewerId: "jack" as const,
+        createdAt: "2026-09-14T00:02:00Z",
+      };
+      d.threads.c2 = {
+        projectId: "p1",
+        thread: {
+          comment: sameReviewer,
+          generation: "completed",
+          replies: [
+            {
+              id: "r2",
+              commentId: "c2",
+              author: "user",
+              reviewerId: "olivia",
+              body: "同一评审人的历史",
+              deckVersionId: "v1",
+              createdAt: "2026-09-14T00:03:00Z",
+              basis: "用户补充",
+            },
+          ],
+        },
+      };
+      d.threads.c3 = {
+        projectId: "p1",
+        thread: {
+          comment: otherReviewer,
+          generation: "completed",
+          replies: [
+            {
+              id: "r3",
+              commentId: "c3",
+              author: "user",
+              reviewerId: "jack",
+              body: "其他评审人的秘密",
+              deckVersionId: "v1",
+              createdAt: "2026-09-14T00:04:00Z",
+              basis: "用户补充",
+            },
+          ],
+        },
+      };
+    });
+    await worker.submitReply(request);
+    await expect(
+      worker.submitReply({
+        ...request,
+        commentId: "c2",
+        idempotencyKey: "same-reviewer-busy",
+      }),
+    ).rejects.toMatchObject({ failure: { code: "thread_busy" } });
+    await worker.runNext();
+    const input = requireValue(model.replies[0]);
+    expect(input.reviewerComments.map((item) => item.id)).toEqual(["c1", "c2"]);
+    expect(input.reviewerReplies.map((item) => item.body)).toContain(
+      "同一评审人的历史",
+    );
+    expect(JSON.stringify(input)).not.toContain("其他评审人的秘密");
+    expect(input.slides).toHaveLength(3);
+  });
+
   it("echoes user immediately, deduplicates concurrent submits, then completes in same role", async () => {
     const { worker, model } = await setup();
     const [a, b] = await Promise.all([
@@ -79,7 +152,7 @@ describe("thread workflow", () => {
     await worker.runNext();
     expect(model.replies[1]?.thread.replies).toHaveLength(3);
     expect(model.replies[1]?.context.deckVersionId).toBe("v2");
-    expect(model.replies[1]?.slides[0]?.notes).toBe("新版本补充的来源");
+    expect(model.replies[1]?.slides[1]?.notes).toBe("新版本补充的来源");
     expect(await worker.listComments("p1")).toHaveLength(1);
   });
   it("retries failure without duplicating user reply", async () => {
@@ -139,7 +212,7 @@ describe("thread workflow", () => {
   });
   it("rejects invalid mock model output at the worker boundary", async () => {
     const { worker, model } = await setup();
-    model.reply = () => Promise.resolve({ body: "短" });
+    model.reply = () => Promise.resolve({ body: "字".repeat(101) });
     const job = await worker.submitReply(request);
     await worker.runNext();
     expect(

@@ -10,6 +10,8 @@ import type {
   ScriptDocument,
   ChangeOperation,
   SelectionRewrite,
+  ChangeSet,
+  Slide,
 } from "@deck-rehearsal/contracts";
 import { DefaultProjectWorkflow } from "@deck-rehearsal/domain";
 import {
@@ -74,6 +76,11 @@ export class WorkspaceService {
     const job = Object.values(d.jobs)
       .filter((j) => j.projectId === projectId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    const draft = d.changeSets[projectId];
+    const activeDraft =
+      draft?.status === "draft" && draft.baseVersionId === version?.id
+        ? draft
+        : undefined;
     return {
       project,
       uploadState: this.uploadState(d, projectId),
@@ -83,7 +90,11 @@ export class WorkspaceService {
       versions: Object.values(d.versions)
         .filter((v) => v.projectId === projectId)
         .sort((a, b) => b.versionNumber - a.versionNumber),
-      slides: d.slides[version?.id ?? ""] ?? [],
+      ...(activeDraft ? { draft: structuredClone(activeDraft) } : {}),
+      slides: this.previewSlides(
+        d.slides[version?.id ?? ""] ?? [],
+        activeDraft,
+      ),
       comments: Object.values(d.comments)
         .filter((c) => d.versions[c.deckVersionId]?.projectId === projectId)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
@@ -91,6 +102,28 @@ export class WorkspaceService {
       warnings: d.warnings[version?.id ?? ""] ?? [],
       reviewers: d.routes[projectId] ?? [],
     };
+  }
+  private previewSlides(slides: Slide[], draft?: ChangeSet) {
+    const preview = structuredClone(slides);
+    for (const operation of draft?.operations ?? []) {
+      if (operation.type !== "replace_text") continue;
+      const element = preview
+        .find((slide) => slide.id === operation.selection.slideId)
+        ?.elements.find(
+          (candidate) => candidate.id === operation.selection.elementId,
+        );
+      const { startOffset, endOffset, selectedText } = operation.selection;
+      if (
+        !element?.text ||
+        element.text.slice(startOffset, endOffset) !== selectedText
+      )
+        continue;
+      element.text =
+        element.text.slice(0, startOffset) +
+        operation.replacementText +
+        element.text.slice(endOffset);
+    }
+    return preview;
   }
   async create(
     input: Parameters<DefaultProjectWorkflow["createProject"]>[0],
@@ -102,6 +135,103 @@ export class WorkspaceService {
       d.uploadStates[project.id] = newUploadState();
       return project;
     });
+  }
+  async deleteProject(projectId: string, key: string) {
+    const result = await this.once(
+      `delete-project:${projectId}`,
+      key,
+      { projectId },
+      (d) => {
+        required(d.projects[projectId], "项目不存在");
+        const versions = Object.values(d.versions).filter(
+          (version) => version.projectId === projectId,
+        );
+        const versionIds = new Set(versions.map((version) => version.id));
+        const sources = Object.values(d.sources).filter(
+          (source) => source.projectId === projectId,
+        );
+        const commentIds = new Set(
+          Object.values(d.comments)
+            .filter((comment) => versionIds.has(comment.deckVersionId))
+            .map((comment) => comment.id),
+        );
+        const storageKeys = [...sources, ...versions].map(
+          (item) => item.storageKey,
+        );
+        for (const [id, source] of Object.entries(d.sources))
+          if (source.projectId === projectId)
+            Reflect.deleteProperty(d.sources, id);
+        for (const [id, version] of Object.entries(d.versions))
+          if (version.projectId === projectId)
+            Reflect.deleteProperty(d.versions, id);
+        for (const versionId of versionIds) {
+          Reflect.deleteProperty(d.slides, versionId);
+          Reflect.deleteProperty(d.contexts, versionId);
+          Reflect.deleteProperty(d.warnings, versionId);
+        }
+        for (const [id, job] of Object.entries(d.jobs))
+          if (job.projectId === projectId) Reflect.deleteProperty(d.jobs, id);
+        for (const [id, comment] of Object.entries(d.comments))
+          if (versionIds.has(comment.deckVersionId))
+            Reflect.deleteProperty(d.comments, id);
+        for (const [id, issue] of Object.entries(d.issues))
+          if (commentIds.has(issue.id) || versionIds.has(issue.deckVersionId))
+            Reflect.deleteProperty(d.issues, id);
+        for (const [id, rewrite] of Object.entries(d.rewrites))
+          if (rewrite.projectId === projectId)
+            Reflect.deleteProperty(d.rewrites, id);
+        for (const [id, suggestion] of Object.entries(d.suggestions))
+          if (versionIds.has(suggestion.selection.deckVersionId))
+            Reflect.deleteProperty(d.suggestions, id);
+        for (const [id, changeSet] of Object.entries(d.changeSets))
+          if (id === projectId || changeSet.projectId === projectId)
+            Reflect.deleteProperty(d.changeSets, id);
+        for (const [id, script] of Object.entries(d.scripts))
+          if (script.projectId === projectId)
+            Reflect.deleteProperty(d.scripts, id);
+        for (const [id, thread] of Object.entries(d.threads))
+          if (
+            commentIds.has(id) ||
+            versionIds.has(thread.comment.deckVersionId)
+          )
+            Reflect.deleteProperty(d.threads, id);
+        Reflect.deleteProperty(d.documents, projectId);
+        Reflect.deleteProperty(d.uploadStates, projectId);
+        Reflect.deleteProperty(d.routes, projectId);
+        Reflect.deleteProperty(d.projects, projectId);
+        for (const requestId of Object.keys(d.requests))
+          if (requestId.includes(projectId))
+            Reflect.deleteProperty(d.requests, requestId);
+        const integrated = d as LocalWorkspaceData & {
+          aiWorker?: {
+            snapshots: Record<string, unknown>;
+            threads: Record<string, { projectId: string }>;
+            jobs: Record<string, { generation: { projectId: string } }>;
+            analysis: Record<string, { context: { projectId: string } }>;
+          };
+          aiLinks?: Record<string, unknown>;
+        };
+        if (integrated.aiWorker) {
+          Reflect.deleteProperty(integrated.aiWorker.snapshots, projectId);
+          for (const [id, item] of Object.entries(integrated.aiWorker.threads))
+            if (item.projectId === projectId)
+              Reflect.deleteProperty(integrated.aiWorker.threads, id);
+          for (const [id, item] of Object.entries(integrated.aiWorker.jobs))
+            if (item.generation.projectId === projectId) {
+              Reflect.deleteProperty(integrated.aiWorker.jobs, id);
+              if (integrated.aiLinks)
+                Reflect.deleteProperty(integrated.aiLinks, id);
+            }
+          for (const [id, item] of Object.entries(integrated.aiWorker.analysis))
+            if (item.context.projectId === projectId)
+              Reflect.deleteProperty(integrated.aiWorker.analysis, id);
+        }
+        return { storageKeys: [...new Set(storageKeys)] };
+      },
+    );
+    await Promise.all(
+      result.storageKeys.map((storageKey) => this.storage.delete(storageKey)),
+    );
   }
   private async once<T>(
     scope: string,
@@ -697,8 +827,19 @@ export class WorkspaceService {
           createdAt: now(),
           basis: "用户补充",
         });
+        const reviewerThreads = Object.values(d.threads).filter(
+          (item) =>
+            d.versions[item.comment.deckVersionId]?.projectId === projectId &&
+            item.comment.reviewerId === thread.comment.reviewerId,
+        );
         const result = await this.model.reply({
           thread,
+          reviewerComments: reviewerThreads
+            .map((item) => item.comment)
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+          reviewerReplies: reviewerThreads
+            .flatMap((item) => item.replies)
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
           context: required(d.contexts[versionId], "缺少上下文"),
           slides: d.slides[versionId] ?? [],
         });
@@ -821,11 +962,16 @@ export class WorkspaceService {
       return proposal;
     });
   }
-  async accept(projectId: string, suggestionId: string, key: string) {
+  async accept(
+    projectId: string,
+    suggestionId: string,
+    key: string,
+    editedReplacementText?: string,
+  ) {
     return this.once(
       `accept:${projectId}`,
       key,
-      { suggestionId },
+      { suggestionId, editedReplacementText },
       async (d, r) => {
         const suggestion = required(
           d.suggestions[suggestionId],
@@ -833,26 +979,31 @@ export class WorkspaceService {
         );
         this.assertVersion(d, projectId, suggestion.selection.deckVersionId);
         if (suggestion.target === "ppt") {
+          const preview = this.previewSlides(
+            d.slides[suggestion.selection.deckVersionId] ?? [],
+            d.changeSets[projectId],
+          );
+          const text = preview
+            .find((slide) => slide.id === suggestion.selection.slideId)
+            ?.elements.find(
+              (element) => element.id === suggestion.selection.elementId,
+            )?.text;
+          const { startOffset, endOffset, selectedText } = suggestion.selection;
+          if (!text || text.slice(startOffset, endOffset) !== selectedText)
+            throw new ServiceError("选区原文已变化，请重新生成", 409);
+        }
+        const replacementText =
+          editedReplacementText ?? suggestion.replacementText;
+        if (!replacementText.trim()) throw new ServiceError("修改建议不能为空");
+        if (suggestion.target === "ppt") {
           const workflow = this.workflow(r);
-          const before = d.slides[suggestion.selection.deckVersionId] ?? [];
           await workflow.updateChanges(projectId, [
             {
               type: "replace_text",
               selection: suggestion.selection,
-              replacementText: suggestion.replacementText,
+              replacementText,
             },
           ]);
-          const version = await workflow.commitVersion(
-            projectId,
-            "接受局部文字改写",
-          );
-          d.changeSets[version.id] = structuredClone(
-            required(d.changeSets[projectId], "缺少变更记录"),
-          );
-          d.warnings[version.id] = inspectLayout(
-            d.slides[version.id] ?? [],
-            before,
-          );
         } else {
           const doc = required(
             d.documents[projectId]?.[suggestion.selection.slideId],
@@ -865,13 +1016,67 @@ export class WorkspaceService {
             throw new ServiceError("讲稿原文已变化，请重新生成", 409);
           Object.assign(
             doc,
-            replaceDocumentRange(doc, start, end, suggestion.replacementText),
+            replaceDocumentRange(doc, start, end, replacementText),
           );
           doc.revision++;
           doc.updatedAt = now();
         }
         Reflect.deleteProperty(d.suggestions, suggestionId);
-        return { accepted: true };
+        if (suggestion.target === "ppt")
+          for (const [id, candidate] of Object.entries(d.suggestions))
+            if (
+              candidate.target === "ppt" &&
+              candidate.selection.deckVersionId ===
+                suggestion.selection.deckVersionId
+            )
+              Reflect.deleteProperty(d.suggestions, id);
+        return {
+          accepted: true,
+          ...(suggestion.target === "ppt"
+            ? { draft: structuredClone(d.changeSets[projectId]) }
+            : {}),
+        };
+      },
+    );
+  }
+  async undoDraft(projectId: string, key: string) {
+    return this.once(`undo-draft:${projectId}`, key, {}, (d) => {
+      const project = required(d.projects[projectId], "项目不存在");
+      const draft = required(d.changeSets[projectId], "没有可撤销的草稿");
+      if (
+        draft.status !== "draft" ||
+        draft.baseVersionId !== project.currentVersionId
+      )
+        throw new ServiceError("草稿已基于旧版本，无法撤销", 409);
+      if (!draft.operations.length) throw new ServiceError("没有可撤销的草稿");
+      draft.operations.pop();
+      draft.updatedAt = now();
+      return structuredClone(draft);
+    });
+  }
+  async commitDraft(projectId: string, versionId: string, key: string) {
+    return this.once(
+      `commit-draft:${projectId}`,
+      key,
+      { versionId },
+      async (d, r) => {
+        this.assertVersion(d, projectId, versionId);
+        const draft = required(d.changeSets[projectId], "没有待提交的草稿");
+        if (draft.status !== "draft" || !draft.operations.length)
+          throw new ServiceError("没有待提交的草稿");
+        const before = structuredClone(d.slides[versionId] ?? []);
+        const version = await this.workflow(r).commitVersion(
+          projectId,
+          "提交文字修改草稿",
+        );
+        d.changeSets[version.id] = structuredClone(
+          required(d.changeSets[projectId], "缺少变更记录"),
+        );
+        d.warnings[version.id] = inspectLayout(
+          d.slides[version.id] ?? [],
+          before,
+        );
+        return version;
       },
     );
   }

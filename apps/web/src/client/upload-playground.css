@@ -1,0 +1,143 @@
+/* Stronger hover feedback and a compact outlined cursor. */
+:root {
+  --cursor-arrow:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13.2' height='16.8' viewBox='0 0 32 32'%3E%3Cpath d='M2 1.5Q1 1 1.5 3L11.5 29.5Q12.5 32 13.3 29L15.5 20.5Q16.8 16.8 21 15.8L29.5 14.3Q32 13.8 29.5 12.5Z' fill='%2309090b' stroke='white' stroke-opacity='.6' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E")
+      1 1,
+    auto;
+}
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled):not([aria-disabled="true"]):hover,
+  a[href]:hover,
+  summary:hover,
+  [role="button"]:not([aria-disabled="true"]):hover {
+    translate: 0 -3px;
+    box-shadow: 0 7px 16px #18355426;
+  }
+  .project-card:hover .card-footer > span {
+    translate: 5px 0;
+    background: #e0eaf5;
+    color: #173f6c;
+    box-shadow: 0 3px 9px #18355418;
+  }
+}
+.card-footer > span {
+  display: inline-block;
+  padding: 7px 10px;
+  border-radius: 5px;
+  transition:
+    translate 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.project-card:active .card-footer > span {
+  translate: 2px 1px;
+}
+.upload-playground {
+  margin: 22px 0;
+  padding: 22px;
+  border: 1px solid #d6e1ec;
+  border-radius: 12px;
+  background: #f7faff;
+  color: #234567;
+}
+.upload-progress-heading,
+.game-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.upload-progress-heading {
+  font-size: 14px;
+}
+.play-progress {
+  width: 100%;
+  height: 12px;
+  margin-top: 16px;
+  accent-color: #537fa8;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 0;
+  background: #e0e9f2;
+}
+.play-progress::-webkit-progress-bar {
+  background: #e0e9f2;
+  border-radius: 20px;
+}
+.play-progress::-webkit-progress-value {
+  background: #537fa8;
+  border-radius: 20px;
+  transition: width 200ms ease;
+}
+.play-progress:indeterminate {
+  animation: progress-breathe 1.4s ease-in-out infinite;
+}
+.progress-note,
+.game-heading p {
+  margin: 9px 0;
+  color: #536c86;
+  font-size: 12px;
+}
+.game-heading {
+  border-top: 1px solid #dce5ef;
+  padding-top: 18px;
+  margin-top: 18px;
+}
+.game-heading b {
+  font-size: 14px;
+}
+.game-score {
+  white-space: nowrap;
+  padding: 7px 12px;
+  background: #e3edf7;
+  border-radius: 20px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.inspiration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 280px;
+  margin: 16px auto;
+}
+.workspace .star-cell {
+  min-height: 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #dbe6ef;
+  border-radius: 9px;
+  background: #edf3f9;
+  color: #9aaec1;
+}
+.workspace .star-cell.lit {
+  color: #345f8b;
+  background: #d8e8f8;
+  border-color: #739bc0;
+  box-shadow: 0 3px 10px #456f9220;
+}
+.game-toggle {
+  margin-top: 8px;
+}
+.upload-playground > small {
+  display: block;
+  margin-top: 12px;
+}
+@keyframes progress-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-footer > span {
+    transition: none;
+    translate: none !important;
+  }
+  .play-progress:indeterminate {
+    animation: none;
+  }
+}

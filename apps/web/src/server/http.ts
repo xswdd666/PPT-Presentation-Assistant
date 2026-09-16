@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { AiError, createModelGatewayFromEnv } from "@deck-rehearsal/ai/runtime";
 import { IntegratedWorkspaceService } from "./integrated-service.js";
 import { createServer } from "node:http";
@@ -190,6 +191,12 @@ export function createApplication(
         const action = match[2] ?? "";
         if (method === "GET" && !action)
           return send(await service.snapshot(projectId));
+        if (method === "DELETE" && !action) {
+          await service.deleteProject(projectId, key);
+          response.writeHead(204);
+          response.end();
+          return;
+        }
         if (method === "POST" && action === "upload-session")
           return send(await service.prepareUpload(projectId, key));
         if (method === "PUT" && action === "targets") {
@@ -280,9 +287,27 @@ export function createApplication(
         }
         if (method === "POST" && action === "accept") {
           const b = z
-            .object({ suggestionId: z.string() })
+            .object({
+              suggestionId: z.string(),
+              replacementText: z.string().max(8000).optional(),
+            })
             .parse(await json(request));
-          return send(await service.accept(projectId, b.suggestionId, key));
+          return send(
+            await service.accept(
+              projectId,
+              b.suggestionId,
+              key,
+              b.replacementText,
+            ),
+          );
+        }
+        if (method === "POST" && action === "draft/undo")
+          return send(await service.undoDraft(projectId, key));
+        if (method === "POST" && action === "draft/commit") {
+          const b = z
+            .object({ versionId: z.string() })
+            .parse(await json(request));
+          return send(await service.commitDraft(projectId, b.versionId, key));
         }
         if (method === "PUT" && action === "script")
           return send(
@@ -383,6 +408,28 @@ export function createApplication(
             ),
           );
         }
+        if (method === "GET" && action.startsWith("image/")) {
+          const parts = action.split("/");
+          if (parts.length !== 4) throw new ServiceError("图片路径无效", 400);
+          try {
+            const file = await service.download(projectId, parts[1] ?? "");
+            const media = await service.pptx.image(
+              file,
+              parts[2] ?? "",
+              parts[3] ?? "",
+            );
+            response.writeHead(200, {
+              "content-type": media.type,
+              "cache-control": "private, max-age=86400, immutable",
+              "x-content-type-options": "nosniff",
+            });
+            response.end(media.content);
+            return;
+          } catch (error) {
+            if (error instanceof ServiceError) throw error;
+            throw new ServiceError("图片不存在或格式暂不支持", 404);
+          }
+        }
         if (method === "GET" && action.startsWith("version/"))
           return send(await service.versionDetail(projectId, action.slice(8)));
         if (method === "GET" && action.startsWith("download/")) {
@@ -406,7 +453,55 @@ export function createApplication(
             ? "text/javascript; charset=utf-8"
             : "text/css; charset=utf-8",
         });
-        response.end(url.pathname.endsWith(".js") ? assets.js : assets.css);
+        response.end(
+          url.pathname.endsWith(".js")
+            ? assets.js
+            : assets.css +
+                "\n" +
+                (await readFile(
+                  resolve(
+                    workspaceRoot,
+                    "apps/web/src/client/interactions.css",
+                  ),
+                  "utf8",
+                )) +
+                "\n" +
+                (await readFile(
+                  resolve(
+                    workspaceRoot,
+                    "apps/web/src/client/upload-playground.css",
+                  ),
+                  "utf8",
+                )) +
+                "\n" +
+                (await readFile(
+                  resolve(
+                    workspaceRoot,
+                    "apps/web/src/client/sketch-progress.css",
+                  ),
+                  "utf8",
+                )),
+        );
+        return;
+      }
+      if (
+        /^\/assets\/(?:avatars\/[a-z-]+\.png|fonts\/(?:files\/)?[a-z0-9-]+\.(?:woff2|css))$/.test(
+          url.pathname,
+        )
+      ) {
+        const asset = await readFile(
+          resolve(workspaceRoot, "apps/web/public", url.pathname.slice(1)),
+        ).catch(() => undefined);
+        if (!asset) throw new ServiceError("资源不存在", 404);
+        response.writeHead(200, {
+          "content-type": url.pathname.endsWith(".png")
+            ? "image/png"
+            : url.pathname.endsWith(".css")
+              ? "text/css"
+              : "font/woff2",
+          "cache-control": "public, max-age=3600",
+        });
+        response.end(asset);
         return;
       }
       response.writeHead(200, {

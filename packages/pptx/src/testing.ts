@@ -1,5 +1,5 @@
 import PptxGenJS from "pptxgenjs";
-export async function makeFixture(pages: number) {
+export async function makeFixture(pages: number, withImage = false) {
   const Constructor = PptxGenJS as unknown as typeof PptxGenJS.default;
   const deck = new Constructor();
   deck.layout = "LAYOUT_WIDE";
@@ -7,6 +7,14 @@ export async function makeFixture(pages: number) {
   deck.title = "增长复盘测试文稿";
   for (let index = 0; index < pages; index++) {
     const slide = deck.addSlide();
+    if (withImage)
+      slide.addImage({
+        data: "image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4X8AAAAASUVORK5CYII=",
+        x: 1,
+        y: 3,
+        w: 2,
+        h: 2,
+      });
     slide.addText(`第 ${String(index + 1)} 页：增长来自更清晰的产品价值`, {
       x: 0.8,
       y: 0.7,

@@ -1,4 +1,8 @@
 import { asyncReviewGateway } from "../features/review-thread/gateway.js";
+import { ArrowLeftIcon as ArrowLeft } from "@phosphor-icons/react/ArrowLeft";
+import { CaretLeftIcon as CaretLeft } from "@phosphor-icons/react/CaretLeft";
+import { CaretRightIcon as CaretRight } from "@phosphor-icons/react/CaretRight";
+import { SparkleIcon as Sparkle } from "@phosphor-icons/react/Sparkle";
 import {
   SlideTextSelectionLayer,
   elementStyle,
@@ -17,6 +21,7 @@ import type {
 } from "@deck-rehearsal/db";
 import { PresenterScriptEditor as ScriptEditor } from "../features/presenter-script/editor.js";
 import { Versions } from "../features/version-history/page.js";
+import { textDiff } from "../features/slide-rewrite/diff.js";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, SyntheticEvent } from "react";
 import { createRoot } from "react-dom/client";
@@ -64,7 +69,8 @@ async function api<T>(
           body: JSON.stringify(body),
         },
   );
-  const data: unknown = await response.json();
+  const data: unknown =
+    response.status === 204 ? undefined : await response.json();
   if (!response.ok) throw new Error((data as { error: string }).error);
   return data as T;
 }
@@ -140,6 +146,7 @@ function Projects({
     }
   });
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState("");
   useEffect(() => {
     void api<(Project & { uploadState: UploadState; versionNumber: number })[]>(
       "/project-summaries",
@@ -170,6 +177,20 @@ function Projects({
       sessionStorage.removeItem("new-project-draft");
       sessionStorage.removeItem("new-project-request");
       navigate(`/projects/${project.id}/upload`);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function removeProject(projectId: string) {
+    setBusy(true);
+    try {
+      await api(`/projects/${projectId}`, {}, "DELETE");
+      setProjects((items) =>
+        items.filter((project) => project.id !== projectId),
+      );
+      setConfirmDelete("");
     } catch (e) {
       onError(String(e));
     } finally {
@@ -266,30 +287,43 @@ function Projects({
       ) : projects.length ? (
         <div className="project-grid">
           {projects.map((p) => (
-            <button
-              key={p.id}
-              className="project-card"
-              onClick={() =>
-                navigate(
-                  `/projects/${p.id}/${p.uploadState.stage === "completed" ? "review" : "upload"}`,
-                )
-              }
-            >
-              <span className="project-symbol">▱</span>
-              <span className="muted">
-                {scenarios[p.scenario] ?? p.scenario} · {p.durationMinutes} 分钟
-              </span>
-              <h2>{p.name}</h2>
-              <p>{p.audience}</p>
-              <p>
-                {uploadLabels[p.uploadState.stage]} ·{" "}
-                {p.versionNumber ? "V" + String(p.versionNumber) : "尚无版本"}
-              </p>
-              <span className="card-footer">
-                {new Date(p.updatedAt).toLocaleDateString("zh-CN")}
-                <span>继续预演 ↗</span>
-              </span>
-            </button>
+            <article className="project-card-shell" key={p.id}>
+              <button
+                className="project-card"
+                onClick={() =>
+                  navigate(
+                    `/projects/${p.id}/${p.uploadState.stage === "completed" ? "review" : "upload"}`,
+                  )
+                }
+              >
+                <span className="project-symbol">▱</span>
+                <span className="muted">
+                  {scenarios[p.scenario] ?? p.scenario} · {p.durationMinutes}{" "}
+                  分钟
+                </span>
+                <h2>{p.name}</h2>
+                <p>{p.audience}</p>
+                <p>
+                  {uploadLabels[p.uploadState.stage]} ·{" "}
+                  {p.versionNumber ? "V" + String(p.versionNumber) : "尚无版本"}
+                </p>
+                <span className="card-footer">
+                  {new Date(p.updatedAt).toLocaleDateString("zh-CN")}
+                  <span>继续预演 ↗</span>
+                </span>
+              </button>
+              <Button
+                className="project-delete"
+                disabled={busy}
+                onClick={() =>
+                  confirmDelete === p.id
+                    ? void removeProject(p.id)
+                    : setConfirmDelete(p.id)
+                }
+              >
+                {confirmDelete === p.id ? "确认删除项目" : "删除"}
+              </Button>
+            </article>
           ))}
         </div>
       ) : (
@@ -324,8 +358,8 @@ export function Workspace({
 }) {
   const [data, setData] = useState<WorkspaceSnapshot>();
   const [loading, setLoading] = useState(true);
-  const [right, setRight] = useSplit("review-width", 360, 340, 370);
-  const [top, setTop] = useSplit("slide-height", 62, 35, 75);
+  const [right, setRight] = useSplit("review-width-v2", 390, 340, 460);
+  const [top, setTop] = useSplit("slide-height-v2", 69, 35, 75);
   const [drawer, setDrawer] = useState<"slides" | "comments" | null>(null);
   useEffect(() => {
     if (!drawer || !window.matchMedia("(max-width: 800px)").matches) return;
@@ -366,6 +400,7 @@ export function Workspace({
   }, [drawer]);
   const [zoom, setZoom] = useState(100);
   const [suggestion, setSuggestion] = useState<SelectionRewrite>();
+  const [editedSuggestion, setEditedSuggestion] = useState("");
   const [generating, setGenerating] = useState(false);
   const generation = useRef(0);
   const origin = useRef<HTMLElement | null>(null);
@@ -445,6 +480,9 @@ export function Workspace({
     if (suggestion)
       document.querySelector<HTMLElement>(".diff-dialog button")?.focus();
   }, [suggestion]);
+  useEffect(() => {
+    setEditedSuggestion(suggestion?.replacementText ?? "");
+  }, [suggestion]);
   function goSlide(id: string) {
     const canvas = document.querySelector(".canvas-pane");
     canvas?.classList.remove("located");
@@ -506,7 +544,7 @@ export function Workspace({
     try {
       await api(
         `/projects/${projectId}/accept`,
-        { suggestionId: suggestion.id },
+        { suggestionId: suggestion.id, replacementText: editedSuggestion },
         "POST",
         suggestion.id,
       );
@@ -519,6 +557,21 @@ export function Workspace({
       setRewriteError(String(e));
     } finally {
       setAccepting(false);
+      setGenerating(false);
+    }
+  }
+  async function draft(action: "undo" | "commit") {
+    if (!data?.version) return;
+    setGenerating(true);
+    try {
+      await api(
+        `/projects/${projectId}/draft/${action}`,
+        action === "commit" ? { versionId: data.version.id } : {},
+      );
+      await load();
+    } catch (e) {
+      onError(String(e));
+    } finally {
       setGenerating(false);
     }
   }
@@ -535,7 +588,13 @@ export function Workspace({
         <Button onClick={() => navigate("/projects")}>返回项目列表</Button>
       </main>
     );
-  const nav = <WorkflowNavigation section={section} onNavigate={goSection} />;
+  const nav = (
+    <WorkflowNavigation
+      section={section}
+      onNavigate={goSection}
+      commentCount={data.comments.length}
+    />
+  );
   return (
     <main
       className={`workspace drawer-${drawer ?? "none"}`}
@@ -548,7 +607,8 @@ export function Workspace({
     >
       <aside className="slide-rail">
         <button className="back" onClick={() => navigate("/projects")}>
-          ← 所有项目
+          <ArrowLeft size={16} />
+          <span>所有项目</span>
         </button>
         <div className="rail-title">
           演示文稿 <span>{slides.length} 页</span>
@@ -628,7 +688,7 @@ export function Workspace({
                       if (s) goSlide(s.id);
                     }}
                   >
-                    ←
+                    <CaretLeft size={20} />
                   </Button>
                   <span>
                     {slide.index} / {slides.length}
@@ -641,7 +701,7 @@ export function Workspace({
                       if (s) goSlide(s.id);
                     }}
                   >
-                    →
+                    <CaretRight size={20} />
                   </Button>
                   <select
                     aria-label="画布缩放"
@@ -660,6 +720,7 @@ export function Workspace({
               </header>
               <div className="canvas-scroll">
                 <SlideCanvas
+                  projectId={projectId}
                   onClear={() => setSelected(undefined)}
                   slide={slide}
                   zoom={zoom}
@@ -689,7 +750,26 @@ export function Workspace({
               </div>
               <footer className="canvas-footer">
                 <span>文字结构预览 · 复杂图形请在 PowerPoint 中核对</span>
-                <span>{slide.hidden ? "备用页 · 已隐藏" : "当前页面"}</span>
+                {data.draft?.operations.length ? (
+                  <span className="draft-actions">
+                    草稿修改 {data.draft.operations.length} 项
+                    <Button
+                      disabled={generating}
+                      onClick={() => void draft("undo")}
+                    >
+                      撤销上一步
+                    </Button>
+                    <Button
+                      primary
+                      disabled={generating}
+                      onClick={() => void draft("commit")}
+                    >
+                      提交为新版本
+                    </Button>
+                  </span>
+                ) : (
+                  <span>{slide.hidden ? "备用页 · 已隐藏" : "当前页面"}</span>
+                )}
               </footer>
             </div>
             <Splitter
@@ -698,7 +778,7 @@ export function Workspace({
               value={top}
               min={35}
               max={75}
-              defaultValue={62}
+              defaultValue={69}
               onChange={setTop}
             />
             {slots.presenterScriptEditor ? (
@@ -747,8 +827,8 @@ export function Workspace({
         label="调整评审面板宽度"
         value={right}
         min={340}
-        max={370}
-        defaultValue={360}
+        max={460}
+        defaultValue={390}
         onChange={setRight}
       />
       <aside className="review-panel">
@@ -786,7 +866,8 @@ export function Workspace({
             {selected.selection.selectedText.length} 字
           </span>
           <Button primary disabled={generating} onClick={() => void rewrite()}>
-            {generating ? "正在生成建议…" : "✦ AI 改写"}
+            <Sparkle size={18} weight="fill" />
+            {generating ? "正在生成建议…" : "AI 改写"}
           </Button>
           <Button
             onClick={() => {
@@ -842,7 +923,7 @@ export function Workspace({
         </div>
       )}
       {suggestion && (
-        <div className="rewrite-panel">
+        <div className={`rewrite-panel rewrite-${selected?.target ?? "ppt"}`}>
           <section
             role="dialog"
             aria-modal="false"
@@ -852,18 +933,29 @@ export function Workspace({
               if (e.key === "Escape" && !accepting) closeRewrite();
             }}
           >
-            <span className="eyebrow">
-              AI REWRITE / V{data.version?.versionNumber}
-            </span>
-            <h2 id="diff-title">让表达更清楚，由你来决定。</h2>
+            <span className="eyebrow">基于 本页 + 上下页 内容生成</span>
+            <h2 id="diff-title">AI 改写建议</h2>
             <label>
-              − 原文<del>{suggestion.selection.selectedText}</del>
+              原文
+              <span className="rewrite-original">
+                {suggestion.selection.selectedText}
+              </span>
             </label>
             <label>
-              ＋ 建议<ins>{suggestion.replacementText}</ins>
+              AI 建议
+              <textarea
+                aria-label="可编辑的 AI 修改建议"
+                value={editedSuggestion}
+                maxLength={8000}
+                disabled={accepting}
+                onChange={(e) => setEditedSuggestion(e.target.value)}
+              />
             </label>
             <div aria-label="文字差异" className="inline-diff">
-              {suggestion.diff.map((part, i) =>
+              {textDiff(
+                suggestion.selection.selectedText,
+                editedSuggestion,
+              ).map((part, i) =>
                 part.type === "delete" ? (
                   <del key={i}>−{part.text}</del>
                 ) : part.type === "insert" ? (
@@ -893,7 +985,7 @@ export function Workspace({
               </Button>
               <Button
                 primary
-                disabled={generating}
+                disabled={generating || !editedSuggestion.trim()}
                 onClick={() => void accept()}
               >
                 {generating ? "正在保存…" : "接受修改"}
@@ -906,12 +998,14 @@ export function Workspace({
   );
 }
 function SlideCanvas({
+  projectId,
   slide,
   zoom,
   onSelection,
   onClear,
   selectionLayer,
 }: {
+  projectId: string;
   selectionLayer?: ReactNode;
   slide: Slide;
   zoom: number;
@@ -929,7 +1023,7 @@ function SlideCanvas({
         {slide.elements.map((e) => (
           <div
             key={e.id}
-            className={`slide-element ${e.editable ? "editable" : "readonly"}`}
+            className={`slide-element ${e.kind === "image" ? "slide-image" : ""} ${e.editable ? "editable" : "readonly"}`}
             style={{
               ...elementStyle(slide, e),
               color: `#${/^[\da-fA-F]{6}$/.test(e.color ?? "") ? e.color : "263341"}`,
@@ -941,10 +1035,20 @@ function SlideCanvas({
                 : undefined
             }
           >
-            {e.text ?? (
-              <span className="object-placeholder">
-                {e.kind === "image" ? "图片" : "图形 / 图表"}
-              </span>
+            {e.kind === "image" ? (
+              <img
+                key={`${slide.deckVersionId}:${e.id}`}
+                src={`/api/projects/${encodeURIComponent(projectId)}/image/${encodeURIComponent(slide.deckVersionId)}/${encodeURIComponent(slide.id)}/${encodeURIComponent(e.id)}`}
+                alt="PPT 原图"
+                decoding="async"
+                onError={(event) => {
+                  event.currentTarget.alt = "此图片格式暂不支持预览";
+                }}
+              />
+            ) : (
+              (e.text ?? (
+                <span className="object-placeholder">图形 / 图表</span>
+              ))
             )}
           </div>
         ))}

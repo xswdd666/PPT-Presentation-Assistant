@@ -18,7 +18,11 @@ await page
   .setInputFiles("../../tests/fixtures/pptx/demo-6.pptx");
 await page.getByRole("button", { name: "上传文稿", exact: true }).click();
 await page.getByText("已解析 6 页", { exact: false }).waitFor();
-await page.getByRole("button", { name: "进入工作台 →" }).click();
+await page.getByRole("button", { name: "开始 AI 分析" }).click();
+await page
+  .getByText("评审已准备好", { exact: true })
+  .waitFor({ timeout: 300000 });
+await page.getByRole("button", { name: "进入评审 →" }).click();
 await page
   .getByLabel("本页汇报稿正文")
   .fill("这一页先说结论，再说明数据依据。");

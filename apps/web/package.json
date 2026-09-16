@@ -17,6 +17,7 @@
     "@deck-rehearsal/domain": "workspace:*",
     "@deck-rehearsal/pptx": "workspace:*",
     "@deck-rehearsal/worker": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10",
     "esbuild": "^0.28.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

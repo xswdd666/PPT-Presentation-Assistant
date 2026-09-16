@@ -85,6 +85,9 @@ it("03 browser: empty, upload, saved targets, running, failure, retry and comple
     await vi.waitFor(() =>
       expect(resumeUpload.toString()).not.toContain("not uploading"),
     );
+    await page.getByRole("button", { name: "玩一局收集星星" }).click();
+    await page.getByRole("button", { name: "收集星星", exact: true }).click();
+    await browserExpect(page.locator(".game-score")).toHaveText("1 颗");
     resumeUpload();
     await browserExpect(
       page.getByText("已解析 2 页", { exact: false }),
@@ -170,6 +173,14 @@ it("03 browser: empty, upload, saved targets, running, failure, retry and comple
       path: resolve("artifacts/03-upload-desktop.png"),
       fullPage: true,
     });
+    await page.goto(base + "/projects");
+    await page.getByRole("button", { name: "删除", exact: true }).click();
+    await page
+      .getByRole("button", { name: "确认删除项目", exact: true })
+      .click();
+    await browserExpect(
+      page.getByRole("button", { name: "新建第一个项目", exact: true }),
+    ).toBeVisible();
     expect(errors).toEqual([]);
   } finally {
     vi.restoreAllMocks();

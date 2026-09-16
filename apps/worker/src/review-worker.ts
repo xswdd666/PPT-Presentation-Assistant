@@ -109,11 +109,12 @@ export class ReviewWorker
           (j) =>
             j.kind === "reply" &&
             j.generation.projectId === input.projectId &&
-            (j.generation as ReplyGeneration).commentId === input.commentId &&
+            d.threads[(j.generation as ReplyGeneration).commentId]?.thread
+              .comment.reviewerId === thread.comment.reviewerId &&
             active(j.generation.state),
         )
       )
-        fail("thread_busy", "该评论正在生成回复，请等待完成");
+        fail("thread_busy", "这位评审人正在回复，请等待完成");
       const id = `reply_job_${randomUUID()}`;
       const generation: ReplyGeneration = {
         id,
@@ -177,8 +178,9 @@ export class ReviewWorker
           (j) =>
             j.id !== job.id &&
             j.kind === "reply" &&
-            (j.generation as ReplyGeneration).commentId ===
-              generation.commentId &&
+            j.generation.projectId === projectId &&
+            d.threads[(j.generation as ReplyGeneration).commentId]?.thread
+              .comment.reviewerId === thread.comment.reviewerId &&
             active(j.generation.state),
         )
       )
@@ -315,16 +317,47 @@ export class ReviewWorker
       ),
       before = hash(snapshot);
     const thread = threadOf(data, generation.projectId, generation.commentId);
-    const slides = snapshot.slides.filter((s) =>
-      thread.comment.relatedSlideIds.includes(s.id),
+    const reviewerId = thread.comment.reviewerId;
+    const reviewerThreads = Object.values(data.threads)
+      .filter(
+        (entry) =>
+          entry.projectId === generation.projectId &&
+          entry.thread.comment.reviewerId === reviewerId,
+      )
+      .map((entry) => entry.thread);
+    const reviewerComments = reviewerThreads
+      .map((item) => item.comment)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const reviewerReplies = reviewerThreads
+      .flatMap((item) => item.replies)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const slides = snapshot.slides;
+    const relatedSlides = slides.filter((slide) =>
+      thread.comment.relatedSlideIds.includes(slide.id),
     );
     if (
-      slides.length !== thread.comment.relatedSlideIds.length ||
+      !thread.comment.relatedSlideIds.every((id) =>
+        slides.some((slide) => slide.id === id),
+      ) ||
       !slides.length
     )
       fail("version_conflict", "评论关联页面已不存在");
     const parsed = replySchema.safeParse(
-      await this.model.reply({ thread, context: snapshot.context, slides }),
+      await this.model.reply({
+        thread,
+        reviewerComments,
+        reviewerReplies,
+        pageAnalyses:
+          Object.values(data.analysis)
+            .filter(
+              (run) =>
+                run.context.projectId === generation.projectId &&
+                run.context.deckVersionId === generation.deckVersionId,
+            )
+            .at(-1)?.pages ?? [],
+        context: snapshot.context,
+        slides,
+      }),
     );
     if (!parsed.success) fail("invalid_output", "回复长度或结构无效");
     await this.store.transaction((d) => {
@@ -346,7 +379,7 @@ export class ReviewWorker
         body: parsed.data.body,
         deckVersionId: generation.deckVersionId,
         createdAt: new Date(this.now()).toISOString(),
-        basis: `基于第 ${slides.map((s) => s.index + 1).join("、")} 页与当前版本 ${generation.deckVersionId}`,
+        basis: `基于第 ${relatedSlides.map((s) => s.index + 1).join("、")} 页与当前版本 ${generation.deckVersionId}`,
       });
       target.generation = "completed";
       delete target.error;

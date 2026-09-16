@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { UploadPlayground } from "./upload-playground.js";
 import type { UploadSnapshot, UploadState } from "@deck-rehearsal/db";
 
 export const uploadLabels: Record<UploadState["stage"], string> = {
@@ -286,7 +287,10 @@ export function Upload({
           </button>
           {busy && (
             <div role="status">
-              <progress max={100} value={progress} />
+              <UploadPlayground
+                {...(progress < 100 ? { progress } : {})}
+                label={progress < 100 ? "正在上传文稿" : "正在解析 PPT"}
+              />
               <p>
                 {progress < 100
                   ? "上传 " + String(progress) + "%"
@@ -313,6 +317,13 @@ export function Upload({
         </div>
       )}
       {localError && <p role="alert">{localError}</p>}
+      {running && (
+        <UploadPlayground
+          label={`当前阶段：${uploadLabels[state.stage]}`}
+          processed={data.job?.processedSlides ?? 0}
+          total={data.job?.totalSlides ?? data.slides.length}
+        />
+      )}
       <div className="goal-form">
         {(["goal", "response"] as const).map((field) => (
           <label key={field}>

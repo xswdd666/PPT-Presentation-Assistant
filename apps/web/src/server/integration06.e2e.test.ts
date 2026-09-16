@@ -166,7 +166,7 @@ it("06 browser: upload → worker → page 6 thread → diff → annotations →
     await ui(page).toHaveURL(/slide=/);
     await ui(page.locator(".canvas-actions")).toContainText("6 / 6");
     await page
-      .getByRole("button", { name: "回复 ↗", exact: true })
+      .getByRole("button", { name: "回复", exact: true })
       .first()
       .click();
     await ui(page.locator(".reply-form textarea")).toBeVisible();
@@ -196,7 +196,7 @@ it("06 browser: upload → worker → page 6 thread → diff → annotations →
     await splitter.focus();
     await splitter.press("ArrowLeft");
     await splitter.press("Enter");
-    await ui(splitter).toHaveAttribute("aria-valuenow", "360");
+    await ui(splitter).toHaveAttribute("aria-valuenow", "390");
     for (const viewport of [
       { width: 1366, height: 768 },
       { width: 390, height: 844 },
@@ -231,9 +231,10 @@ it("06 browser: upload → worker → page 6 thread → diff → annotations →
     await ui(page.getByLabel("文字差异")).toBeVisible();
     await page.getByRole("button", { name: "接受修改", exact: true }).click();
     await ui(page.getByRole("dialog")).toHaveCount(0);
-    await vi.waitFor(async () =>
-      expect((await service.snapshot(projectId)).versions).toHaveLength(2),
-    );
+    await ui(page.getByRole("button", { name: "提交为新版本" })).toBeVisible();
+    await page.getByRole("button", { name: "提交为新版本" }).click();
+    await ui(page.getByRole("button", { name: "提交为新版本" })).toHaveCount(0);
+    expect((await service.snapshot(projectId)).versions).toHaveLength(2);
     const editor = page.getByRole("textbox", { name: "本页汇报稿正文" });
     await editor.fill("先讲清楚结论，再说明依据");
     await editor.evaluate((node) => {

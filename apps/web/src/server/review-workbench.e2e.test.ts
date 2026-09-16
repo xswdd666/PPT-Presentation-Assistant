@@ -164,15 +164,21 @@ it("04 workbench: deep links, virtual pages, splitters, reply lifecycle, focus r
     const split = page.getByRole("separator", { name: "调整评审面板宽度" });
     await split.focus();
     await page.keyboard.press("End");
-    await ui(split).toHaveAttribute("aria-valuenow", "370");
+    await ui(split).toHaveAttribute("aria-valuenow", "460");
     await page.keyboard.press("Enter");
-    await ui(split).toHaveAttribute("aria-valuenow", "360");
+    await ui(split).toHaveAttribute("aria-valuenow", "390");
     const horizontal = page.getByRole("separator", {
       name: "调整画布与讲稿高度",
     });
     await horizontal.focus();
     await page.keyboard.press("ArrowUp");
-    await ui(horizontal).toHaveAttribute("aria-valuenow", "59");
+    await ui(horizontal).toHaveAttribute("aria-valuenow", "66");
+    const group = page.locator(".reviewer-comment-group").first();
+    await ui(group.locator("summary")).toContainText("更多评论（11）");
+    await ui(group.locator(".comment").first()).toBeVisible();
+    await ui(group.locator(".comment").nth(1)).toBeHidden();
+    await group.locator("summary").click();
+    await ui(group.locator(".comment")).toHaveCount(12);
     const sixthComment = page.locator("#comment-comment-six");
     await sixthComment.scrollIntoViewIfNeeded();
     await sixthComment
@@ -203,7 +209,7 @@ it("04 workbench: deep links, virtual pages, splitters, reply lifecycle, focus r
     expect(
       await page.locator(".comment-list").evaluate((el) => el.scrollTop),
     ).toBeCloseTo(before, 0);
-    await ui(horizontal).toHaveAttribute("aria-valuenow", "59");
+    await ui(horizontal).toHaveAttribute("aria-valuenow", "66");
     await page.goto(
       `${base}/projects/${project.id}/review?comment=${comment.id}`,
     );

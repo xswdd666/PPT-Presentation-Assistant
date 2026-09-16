@@ -1,0 +1,67 @@
+.sketch-progress {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 74px;
+  color: #537b9e;
+  padding: 10px 2px;
+}
+.sketch-flight {
+  position: relative;
+  flex: 1;
+  height: 34px;
+  overflow: hidden;
+}
+.sketch-trail {
+  position: absolute;
+  top: 23px;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed #b0c5d7;
+}
+.sketch-flight > svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: #f7faff;
+  animation: sketch-delivery 3s ease-in-out infinite;
+}
+.sketch-pages {
+  animation: sketch-pages 2s ease-in-out infinite;
+}
+@keyframes sketch-delivery {
+  0% {
+    left: 0;
+    transform: translateY(3px) rotate(-8deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 30px);
+    transform: translateY(-3px) rotate(4deg);
+    opacity: 0;
+  }
+}
+@keyframes sketch-pages {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sketch-flight > svg,
+  .sketch-pages {
+    animation: none;
+  }
+  .sketch-flight > svg {
+    left: 45%;
+  }
+}

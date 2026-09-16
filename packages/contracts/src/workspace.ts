@@ -38,6 +38,8 @@ export interface WorkspaceSnapshot {
   project: Project;
   version?: DeckVersion;
   versions: DeckVersion[];
+  /** Unsubmitted PPT edits; slides in this snapshot include its preview. */
+  draft?: ChangeSet;
   slides: Slide[];
   context?: DeckContext;
   job?: AnalysisJob;

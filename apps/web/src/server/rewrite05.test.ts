@@ -78,6 +78,17 @@ it("PPT suggestion has adjacent context, zero decision writes on rejection, atom
     service.accept(project.id, proposal.id, proposal.id),
   ]);
   expect(results[0]).toEqual(results[1]);
+  const draft = await service.snapshot(project.id);
+  expect(draft.versions).toHaveLength(1);
+  expect(draft.draft?.operations).toHaveLength(1);
+  expect(
+    present(draft.slides[1]).elements.find((e) => e.id === element.id)?.text,
+  ).toBe(proposal.replacementText + present(element.text).slice(2));
+  await service.commitDraft(
+    project.id,
+    present(draft.version).id,
+    "commit-draft",
+  );
   const next = await service.snapshot(project.id);
   expect(next.versions).toHaveLength(2);
   expect(next.warnings.length).toBeGreaterThan(0);

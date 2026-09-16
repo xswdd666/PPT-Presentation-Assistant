@@ -7,6 +7,27 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LocalWorkspaceStore } from "@deck-rehearsal/db";
 const run = promisify(execFile);
+it("progress writes remain atomic while the UI continuously polls", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "progress-polling-"));
+  const store = new LocalWorkspaceStore(dir);
+  const polling = { finished: false };
+  await store.transaction(() => {});
+  const reader = (async () => {
+    while (!polling.finished) await store.read();
+  })();
+  try {
+    for (let i = 1; i <= 100; i++) {
+      await store.transaction((d) => {
+        d.requests.counter = { fingerprint: "counter", result: i };
+      });
+    }
+    expect((await store.read()).requests.counter?.result).toBe(100);
+  } finally {
+    polling.finished = true;
+    await reader;
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 30000);
 it("06 empty/legacy migration and separate OS processes preserve atomic writes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "integration06-db-"));
   try {

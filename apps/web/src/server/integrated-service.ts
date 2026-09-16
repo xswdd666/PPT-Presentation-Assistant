@@ -31,7 +31,21 @@ export class IntegratedWorkspaceService extends WorkspaceService {
       ai,
       new AnalysisPipeline(ai, new StoreAnalysisCache(store), namespace),
     );
-    this.rewrites = new LocalRewriteService(this.worker, ai);
+    this.rewrites = new LocalRewriteService(
+      {
+        getSnapshot: async (projectId) => {
+          const snapshot = await this.snapshot(projectId);
+          if (!snapshot.context)
+            throw new ServiceError("项目尚未准备好改写", 409);
+          return {
+            context: snapshot.context,
+            slides: snapshot.slides,
+            documents: snapshot.documents,
+          };
+        },
+      },
+      ai,
+    );
   }
   override async snapshot(projectId: string) {
     return { ...(await super.snapshot(projectId)), asyncReviews: true };
@@ -78,13 +92,11 @@ export class IntegratedWorkspaceService extends WorkspaceService {
           continue;
         try {
           const snapshot = await this.worker.getSnapshot(job.projectId);
-          // Parsing is real and also verifies the stored file after a restart.
+          // Upload has already persisted parsed slides. Retrying AI must not parse the PPTX again.
           const version = d.versions[job.deckVersionId];
           if (!version) throw new ServiceError("版本不存在", 404);
-          await this.pptx.parse(
-            await this.storage.get(version.storageKey),
-            version.id,
-          );
+          if (!snapshot.slides.length)
+            throw new ServiceError("已解析页面缺失，请重新上传文件", 409);
           const key = hash([job.id, d.uploadStates[job.projectId]?.attempt]);
           if (snapshot.context.deckVersionId !== job.deckVersionId) {
             await this.store.transaction((latest) => {
@@ -175,7 +187,7 @@ export class IntegratedWorkspaceService extends WorkspaceService {
     selection: TextSelection,
     revision?: number,
   ) {
-    const snapshot = await this.worker.getSnapshot(projectId);
+    const snapshot = await this.snapshot(projectId);
     const proposal = await this.rewrites.suggest(
       target === "ppt"
         ? { projectId, target, selection }

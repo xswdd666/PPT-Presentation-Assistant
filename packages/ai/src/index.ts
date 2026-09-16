@@ -72,10 +72,10 @@ export const analysisSchema = z.object({
       z.object({
         reviewerId: text,
         slideId: text,
-        body: text.refine(
-          (s) => displayLength(s) >= 50 && displayLength(s) <= 100,
-          "主评论必须为 50–100 个显示字符",
-        ),
+        body: z
+          .string()
+          .transform((s) => s.trim().replace(/\s+/g, " "))
+          .refine((s) => displayLength(s) <= 100, "主评论最多 100 个显示字符"),
         evidence: text,
         impact: text,
         suggestedAction: text,
@@ -192,7 +192,7 @@ export class JsonModelGateway implements ModelGateway {
     slides: Slide[],
   ): Promise<AnalysisResult> {
     const result = await this.generate(
-      "分析整套材料的叙事、证据、场景适配度；根据主要风险从 7 位候选者选 3–4 位，并给出选人理由。每人至少一条评论，按页面稳定 ID 绑定。合并重复问题。每条主评论必须 50–100 个中文显示字符，不含待处理标签。缺失的目标与期望回应生成建议，用户确认值必须原样保留。当前输入为原生文字和位置，不能声称看过原图或判断图表中的未知内容。",
+      "分析整套材料的叙事、证据、场景适配度；根据主要风险从 7 位候选者选 3–4 位，并给出选人理由。每人至少一条评论，按页面稳定 ID 绑定。合并重复问题。每条主评论最多 100 个显示字符，不含待处理标签。缺失的目标与期望回应生成建议，用户确认值必须原样保留。当前输入为原生文字和位置，不能声称看过原图或判断图表中的未知内容。",
       { context, slides, candidates: REVIEWERS },
       analysisSchema,
     );
@@ -220,15 +220,13 @@ export class JsonModelGateway implements ModelGateway {
   }
   async reply(input: ReviewThreadInput) {
     return this.generate(
-      "原评论的同一评审角色继续回应完整线程中的最新用户回复。结合当前版本与相关页面，30–180 字，简洁且可执行。",
+      "原评论的同一评审角色继续回应完整线程中的最新用户回复。结合当前版本与相关页面，0–100 字，简洁且可执行。",
       {
         ...input,
         role: REVIEWERS.find((r) => r.id === input.thread.comment.reviewerId),
       },
       z.object({
-        body: text.refine(
-          (s) => displayLength(s) >= 30 && displayLength(s) <= 180,
-        ),
+        body: text.refine((s) => displayLength(s) <= 100),
       }),
     );
   }

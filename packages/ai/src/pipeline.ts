@@ -109,17 +109,21 @@ export function validateAnalysis(
   if (!parsed.success) fail("invalid_output", "模型分析结果不符合 Schema");
   const result = parsed.data;
   const selected = new Set<string>(result.reviewers.map((r) => r.id));
+  if (selected.size !== result.reviewers.length)
+    fail("invalid_output", "模型返回了重复角色");
   if (
-    selected.size !== result.reviewers.length ||
-    (roles &&
-      (roles.length !== selected.size ||
-        roles.some((r) => !selected.has(r)))) ||
+    roles &&
+    (roles.length !== selected.size || roles.some((r) => !selected.has(r)))
+  )
+    fail("invalid_output", "模型未严格使用系统路由角色");
+  if (result.comments.some((c) => !selected.has(c.reviewerId)))
+    fail("invalid_output", "模型评论使用了未路由角色");
+  if (
     result.comments.some(
-      (c) =>
-        !selected.has(c.reviewerId) || !slides.some((s) => s.id === c.slideId),
+      (comment) => !slides.some((slide) => slide.id === comment.slideId),
     )
   )
-    fail("invalid_output", "模型返回无效角色或页面引用");
+    fail("invalid_output", "模型评论返回了无效页面引用");
   return {
     ...result,
     comments: result.comments.map(({ rootCause, ...c }) => ({
@@ -133,6 +137,7 @@ export function clusterComments(comments: AnalysisOutput["comments"]) {
   for (const comment of comments) {
     // Same page, root cause AND remedy. Preserve distinct actions and page references.
     const key = hash([
+      comment.reviewerId,
       comment.slideId,
       normalized(comment.rootCause ?? comment.evidence),
       normalized(comment.suggestedAction),
@@ -161,27 +166,70 @@ export class AnalysisPipeline {
     const pages: PageAnalysis[] = [],
       reusedSlideIds: string[] = [],
       failedSlides: AnalysisRun["failedSlides"] = [];
-    for (const slide of slides) {
-      try {
-        const key = pageCacheKey(
-          snapshot.context.projectId,
-          slide,
-          this.namespace,
+    let nextSlide = 0;
+    let stopped = false;
+    let progressTail = Promise.resolve();
+    const storage = <T>(work: () => Promise<T>) => {
+      const task = progressTail.then(work);
+      progressTail = task.then(() => undefined);
+      return task;
+    };
+    const analyzeNext = async () => {
+      while (!stopped) {
+        const slide = slides[nextSlide++];
+        if (!slide) return;
+        try {
+          const key = pageCacheKey(
+            snapshot.context.projectId,
+            slide,
+            this.namespace,
+          );
+          const cached = await storage(() => this.cache.get(key));
+          const parsed = pageAnalysisSchema.safeParse(
+            cached ?? (await this.model.analyzePage({ slide })),
+          );
+          if (!parsed.success || parsed.data.slideId !== slide.id)
+            fail("invalid_output", "单页分析返回无效页面引用");
+          pages.push(parsed.data);
+          if (cached) reusedSlideIds.push(slide.id);
+          else await storage(() => this.cache.set(key, parsed.data));
+        } catch (error) {
+          // Provider-wide failures affect every page; don't wait through the entire deck.
+          if (
+            error instanceof AiError &&
+            ["model_unavailable", "not_configured", "rate_limited"].includes(
+              error.failure.code,
+            )
+          ) {
+            stopped = true;
+            throw error;
+          }
+          failedSlides.push({ slideId: slide.id, error: safeFailure(error) });
+        }
+        const processed = pages.length + failedSlides.length;
+        progressTail = progressTail.then(() =>
+          progress?.(processed, slides.length),
         );
-        const cached = await this.cache.get(key);
-        const parsed = pageAnalysisSchema.safeParse(
-          cached ?? (await this.model.analyzePage({ slide })),
-        );
-        if (!parsed.success || parsed.data.slideId !== slide.id)
-          fail("invalid_output", "单页分析返回无效页面引用");
-        pages.push(parsed.data);
-        if (cached) reusedSlideIds.push(slide.id);
-        else await this.cache.set(key, parsed.data);
-      } catch (error) {
-        failedSlides.push({ slideId: slide.id, error: safeFailure(error) });
+        try {
+          await progressTail;
+        } catch (error) {
+          stopped = true;
+          throw error;
+        }
       }
-      await progress?.(pages.length + failedSlides.length, slides.length);
-    }
+    };
+    const tasks = await Promise.allSettled(
+      Array.from({ length: Math.min(3, slides.length) }, () => analyzeNext()),
+    );
+    const failure = tasks.find(
+      (task): task is PromiseRejectedResult => task.status === "rejected",
+    );
+    if (failure) throw failure.reason;
+    pages.sort(
+      (a, b) =>
+        slides.findIndex((s) => s.id === a.slideId) -
+        slides.findIndex((s) => s.id === b.slideId),
+    );
     if (!pages.length) {
       const failure = failedSlides[0]?.error;
       if (failure) throw new AiError(failure);

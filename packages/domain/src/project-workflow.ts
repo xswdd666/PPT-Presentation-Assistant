@@ -176,9 +176,9 @@ export class DefaultProjectWorkflow implements ProjectWorkflow {
       ),
     ).length;
     invariant(
-      displayLength >= 50 && displayLength <= 100,
+      displayLength <= 100,
       "invalid_comment_length",
-      "Published comments must contain 50 to 100 display characters",
+      "Published comments must contain at most 100 display characters",
     );
     const comment: ReviewComment = {
       id: this.dependencies.ids.next("comment"),

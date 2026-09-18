@@ -12,6 +12,7 @@ export function WorkflowNavigation({
       {[
         ["upload", "上传"],
         ["review", "评审"],
+        ["coach", "教练"],
         ["script", "讲稿"],
         ["versions", "版本"],
       ].map(([value, label]) => (

@@ -6,6 +6,7 @@ import type {
   ReviewThreadInput,
   Slide,
 } from "@deck-rehearsal/contracts";
+export { CoachModelAdapter, coachActionSchema } from "./coach-agent.js";
 
 export const REVIEWERS = [
   {

@@ -7,6 +7,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/coverage/**",
       "**/node_modules/**",
+      "artifacts/**",
       "eslint.config.mjs",
       "vitest*.config.ts",
     ],

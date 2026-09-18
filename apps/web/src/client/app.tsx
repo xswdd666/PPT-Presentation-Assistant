@@ -24,6 +24,7 @@ import type {
 } from "@deck-rehearsal/db";
 import { PresenterScriptEditor as ScriptEditor } from "../features/presenter-script/editor.js";
 import { Versions } from "../features/version-history/page.js";
+import { CoachPage } from "../features/coach/page.js";
 import { textDiff } from "../features/slide-rewrite/diff.js";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, SyntheticEvent } from "react";
@@ -675,7 +676,15 @@ export function Workspace({
               </>
             )}
             {section === "review" && (
-              <Button onClick={() => goSection("script")}>查看整份讲稿</Button>
+              <Button
+                onClick={() =>
+                  navigate(
+                    `/projects/${projectId}/script?view=full&slide=${slide.id}`,
+                  )
+                }
+              >
+                查看整份讲稿
+              </Button>
             )}
           </div>
         )}
@@ -688,6 +697,19 @@ export function Workspace({
           />
         ) : section === "versions" ? (
           <Versions data={data} reload={load} onError={onError} />
+        ) : section === "coach" ? (
+          <CoachPage
+            projectId={projectId}
+            defaultObjective={
+              data.context?.goal?.value ??
+              "帮我把这套汇报调整到能在限定时间内，让目标听众理解重点并产生期望回应。"
+            }
+            onError={onError}
+            onLocate={(slideId) => {
+              goSlide(slideId);
+              goSection("review");
+            }}
+          />
         ) : !slide ? (
           <div className="empty">
             <h2>还没有演示文稿</h2>
@@ -704,6 +726,7 @@ export function Workspace({
             onSelect={goSlide}
             onSaved={savedDocument}
             onError={onError}
+            initialFull={url.searchParams.get("view") === "full"}
             onSelection={(selection) =>
               setSelected({ target: "script", selection })
             }

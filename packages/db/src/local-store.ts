@@ -36,6 +36,8 @@ export function emptyWorkspace(): LocalWorkspaceData {
     warnings: {},
     requests: {},
     routes: {},
+    coachRuns: {},
+    coachRunByProject: {},
   };
 }
 /** Atomic local snapshots with a cross-process directory lock. Stop writers before recovering an abandoned lock. */

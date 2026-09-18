@@ -14,6 +14,7 @@ export function ScriptPage({
   onSelection,
   onSaved,
   onError,
+  initialFull = false,
 }: {
   projectId: string;
   slides: Slide[];
@@ -23,9 +24,10 @@ export function ScriptPage({
   onSelection: (s: TextSelection) => void;
   onSaved: (d: ScriptDocument) => void;
   onError: (s: string) => void;
+  initialFull?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [full, setFull] = useState(true);
+  const [full, setFull] = useState(initialFull);
   const total = slides.reduce(
     (n, s) => n + (documents[s.id]?.text.length ?? 0),
     0,

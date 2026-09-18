@@ -14,6 +14,7 @@ import type {
   Slide,
   SourceFile,
   LayoutWarning,
+  CoachRun,
 } from "./index.js";
 export interface WorkspaceData {
   projects: Record<string, Project>;
@@ -33,6 +34,8 @@ export interface WorkspaceData {
   warnings: Record<string, LayoutWarning[]>;
   requests: Record<string, { fingerprint: string; result: unknown }>;
   routes: Record<string, { id: string; reason: string }[]>;
+  coachRuns: Record<string, CoachRun>;
+  coachRunByProject: Record<string, string>;
 }
 export interface WorkspaceSnapshot {
   project: Project;

@@ -355,6 +355,66 @@ export function createApplication(
           );
         }
         if (service instanceof IntegratedWorkspaceService) {
+          if (method === "POST" && action === "coach-runs") {
+            if (!key.trim())
+              throw new ServiceError("缺少幂等键", 400, "invalid_input");
+            const body = z
+              .object({ objective: z.string().trim().min(1).max(5000) })
+              .parse(await json(request));
+            const snapshot = await service.snapshot(projectId);
+            if (!snapshot.version)
+              throw new ServiceError(
+                "项目尚无可分析版本",
+                409,
+                "version_conflict",
+              );
+            return send(
+              await service.coach.start({
+                projectId,
+                baseVersionId: snapshot.version.id,
+                objective: body.objective,
+                idempotencyKey: key,
+              }),
+              202,
+            );
+          }
+          if (method === "GET" && action === "coach-runs/current") {
+            const run = await service.coach.getCurrent(projectId);
+            if (!run)
+              throw new ServiceError("教练任务不存在", 404, "not_found");
+            return send(run);
+          }
+          const coachMatch =
+            /^coach-runs\/([^/]+)(?:\/(decisions|retry|cancel))?$/.exec(action);
+          if (coachMatch) {
+            const runId = coachMatch[1] ?? "";
+            const run = await service.coach.get(runId).catch(() => undefined);
+            if (!run || run.projectId !== projectId)
+              throw new ServiceError("教练任务不存在", 404, "not_found");
+            if (method === "GET" && !coachMatch[2]) return send(run);
+            if (method === "POST" && coachMatch[2] === "decisions") {
+              if (!key.trim())
+                throw new ServiceError("缺少幂等键", 400, "invalid_input");
+              const body = z
+                .object({
+                  proposalId: z.string().min(1),
+                  decision: z.enum(["accepted", "rejected"]),
+                })
+                .parse(await json(request));
+              return send(
+                await service.coach.decide({
+                  runId,
+                  proposalId: body.proposalId,
+                  decision: body.decision,
+                  idempotencyKey: key,
+                }),
+              );
+            }
+            if (method === "POST" && coachMatch[2] === "retry")
+              return send(await service.coach.retry(runId), 202);
+            if (method === "POST" && coachMatch[2] === "cancel")
+              return send(await service.coach.cancel(runId));
+          }
           const replyMatch = /^replies\/([^/]+)(\/retry)?$/.exec(action);
           if (replyMatch && method === "GET" && !replyMatch[2])
             return send(

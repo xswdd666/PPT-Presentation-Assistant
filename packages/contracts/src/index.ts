@@ -6,3 +6,4 @@ export const CONTRACTS_VERSION = "0.1.0" as const;
 export * from "./review.js";
 export * from "./workspace.js";
 export * from "./ai.js";
+export * from "./coach.js";

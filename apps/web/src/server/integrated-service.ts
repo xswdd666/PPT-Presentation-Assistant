@@ -2,22 +2,32 @@ import type {
   ModelGateway,
   ReviewAnalysisModel,
   TextSelection,
+  CoachModel,
+  ReviewThread,
 } from "@deck-rehearsal/contracts";
 import type { JsonModelGateway } from "@deck-rehearsal/ai";
 import {
   AnalysisPipeline,
   LocalRewriteService,
   hash,
+  CoachModelAdapter,
 } from "@deck-rehearsal/ai/runtime";
-import { ReviewWorker, StoreAnalysisCache } from "@deck-rehearsal/worker";
+import {
+  CoachAgentRuntime,
+  DefaultCoachToolRegistry,
+  ReviewWorker,
+  StoreAnalysisCache,
+} from "@deck-rehearsal/worker";
 import { WorkspaceService, ServiceError } from "./service.js";
 import type { IntegratedData } from "./worker-store.js";
 import { WorkspaceWorkerStore } from "./worker-store.js";
 import { ManuscriptGenerator } from "./manuscript.js";
+import { WorkspaceCoachStore } from "./coach-store.js";
 
 /** Production assembly: real PPTX/domain/storage plus task 02's durable AI worker. */
 export class IntegratedWorkspaceService extends WorkspaceService {
   readonly worker: ReviewWorker;
+  readonly coach: CoachAgentRuntime;
   private readonly rewrites: LocalRewriteService;
   private running = false;
   constructor(
@@ -25,6 +35,7 @@ export class IntegratedWorkspaceService extends WorkspaceService {
     model: JsonModelGateway,
     ai: ReviewAnalysisModel & Partial<Pick<ModelGateway, "createScript">>,
     namespace = "default",
+    coachModel: CoachModel = new CoachModelAdapter(model),
   ) {
     super(directory, model);
     if (ai.createScript)
@@ -52,6 +63,111 @@ export class IntegratedWorkspaceService extends WorkspaceService {
       },
       ai,
     );
+    const coachStore = new WorkspaceCoachStore(this.store);
+    const coachTools = new DefaultCoachToolRegistry({
+      snapshot: async (projectId) => {
+        const view = await this.snapshot(projectId);
+        if (!view.context) throw new ServiceError("项目尚未完成分析", 409);
+        return {
+          context: view.context,
+          slides: view.slides,
+          documents: view.documents,
+        };
+      },
+      analyses: async (projectId, versionId) => {
+        const data = (await this.store.read()) as IntegratedData;
+        return (
+          Object.values(data.aiWorker?.analysis ?? {})
+            .filter(
+              (item) =>
+                item.context.projectId === projectId &&
+                item.context.deckVersionId === versionId,
+            )
+            .at(-1)?.pages ?? []
+        );
+      },
+      reviews: async (projectId, versionId) => {
+        const data = await this.store.read();
+        return Object.values(data.comments).filter(
+          (comment) =>
+            data.versions[comment.deckVersionId]?.projectId === projectId &&
+            comment.deckVersionId === versionId,
+        );
+      },
+      askReviewer: async ({
+        projectId,
+        versionId,
+        reviewerId,
+        question,
+        relatedSlideIds,
+      }) => {
+        const data = await this.store.read();
+        const threads = Object.values(data.threads).filter(
+          (thread) =>
+            data.versions[thread.comment.deckVersionId]?.projectId ===
+              projectId && thread.comment.reviewerId === reviewerId,
+        );
+        const anchor =
+          threads.find((thread) =>
+            thread.comment.relatedSlideIds.some((id) =>
+              relatedSlideIds.includes(id),
+            ),
+          ) ?? threads[0];
+        if (!anchor) throw new ServiceError("评审人会话不存在", 404);
+        const view = await this.snapshot(projectId);
+        if (!view.context || view.version?.id !== versionId)
+          throw new ServiceError("版本已变化", 409);
+        const synthetic: ReviewThread = structuredClone(anchor);
+        synthetic.replies.push({
+          id: `coach_question_${Date.now().toString(36)}`,
+          commentId: anchor.comment.id,
+          author: "user",
+          reviewerId,
+          body: question,
+          deckVersionId: versionId,
+          createdAt: new Date().toISOString(),
+          basis: "教练内部追问",
+        });
+        const answer = await ai.reply({
+          thread: synthetic,
+          reviewerComments: threads.map((item) => item.comment),
+          reviewerReplies: threads.flatMap((item) => item.replies),
+          pageAnalyses:
+            Object.values(
+              ((await this.store.read()) as IntegratedData).aiWorker
+                ?.analysis ?? {},
+            )
+              .filter(
+                (item) =>
+                  item.context.projectId === projectId &&
+                  item.context.deckVersionId === versionId,
+              )
+              .at(-1)?.pages ?? [],
+          context: view.context,
+          slides: view.slides,
+        });
+        return answer.body;
+      },
+      propose: async ({ projectId, target, selection, scriptRevision }) =>
+        this.rewrites.suggest(
+          target === "ppt"
+            ? { projectId, target, selection }
+            : {
+                projectId,
+                target,
+                selection,
+                scriptRevision: scriptRevision ?? 0,
+              },
+        ),
+    });
+    this.coach = new CoachAgentRuntime(coachStore, coachModel, coachTools, {
+      acceptProposal: async (run, proposalId, key) => {
+        const proposal = run.proposals.find((item) => item.id === proposalId);
+        if (!proposal?.suggestionId)
+          throw new ServiceError("提案不可直接接受", 409);
+        await this.accept(run.projectId, proposal.suggestionId, key);
+      },
+    });
   }
   override async snapshot(projectId: string) {
     return { ...(await super.snapshot(projectId)), asyncReviews: true };
@@ -154,6 +270,7 @@ export class IntegratedWorkspaceService extends WorkspaceService {
       }
       await this.worker.runNext();
       await this.manuscripts.runNext();
+      await this.coach.runNext();
     } finally {
       this.running = false;
     }

@@ -80,15 +80,16 @@ export const scriptSchema = z.object({
       purpose: text,
       keyMessage: text,
       speakingOrder: z.array(text),
-      narration: text,
-      transitionIn: text.optional(),
-      transitionOut: text.optional(),
+      narration: z.string().trim().min(1).max(800),
+      // An opening or closing page may legitimately need no transition.
+      transitionIn: z.string().trim().max(8000).nullish(),
+      transitionOut: z.string().trim().max(8000).nullish(),
       durationSeconds: z.number().positive(),
       optionalContent: z.array(text),
       likelyQuestions: z.array(text),
     }),
   ),
-  compressionAdvice: text.optional(),
+  compressionAdvice: z.string().trim().max(8000).nullish(),
 });
 export class AiError extends Error {
   constructor(public readonly failure: AiFailure) {

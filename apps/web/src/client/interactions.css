@@ -188,3 +188,21 @@ summary:active,
     scale: none !important;
   }
 }
+
+/* Review comments keep the reading surface still. Their small actions use ink only. */
+.comment-body,
+.comment-body:hover,
+.comment-body:active,
+.comment-actions button,
+.comment-actions button:hover,
+.comment-actions button:active {
+  translate: none !important;
+  scale: 1 !important;
+  box-shadow: none !important;
+}
+.comment-actions button:hover:not(:disabled) {
+  color: #123f6c !important;
+}
+.comment-actions button:hover:not(:disabled) svg {
+  color: #123f6c;
+}

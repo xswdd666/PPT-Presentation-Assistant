@@ -1,4 +1,18 @@
 import PptxGenJS from "pptxgenjs";
+import JSZip from "jszip";
+export async function makeDrawingFixture() {
+  const zip = await JSZip.loadAsync(await makeFixture(1));
+  const source = zip.file("ppt/slides/slide1.xml");
+  if (!source) throw new Error("Missing fixture slide");
+  zip.file(
+    "ppt/slides/slide1.xml",
+    (await source.async("string")).replace(
+      "</p:spTree>",
+      '<p:sp><p:nvSpPr><p:cNvPr id="98" name="brace"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="7195837" y="706968"/><a:ext cx="962025" cy="5398556"/></a:xfrm><a:prstGeom prst="rightBrace"/></p:spPr><p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></p:style></p:sp><p:cxnSp><p:nvCxnSpPr><p:cNvPr id="99" name="arrow"/></p:nvCxnSpPr><p:spPr><a:xfrm flipH="1"><a:off x="8020652" y="3409950"/><a:ext cx="1575217" cy="0"/></a:xfrm><a:prstGeom prst="straightConnector1"/><a:ln><a:tailEnd type="triangle"/></a:ln></p:spPr><p:style><a:lnRef idx="3"><a:schemeClr val="accent2"/></a:lnRef></p:style></p:cxnSp></p:spTree>',
+    ),
+  );
+  return zip.generateAsync({ type: "uint8array" });
+}
 export async function makeFixture(pages: number, withImage = false) {
   const Constructor = PptxGenJS as unknown as typeof PptxGenJS.default;
   const deck = new Constructor();

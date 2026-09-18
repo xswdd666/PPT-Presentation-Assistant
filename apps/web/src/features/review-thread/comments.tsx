@@ -94,11 +94,15 @@ function Comment({
   data,
   onLocate,
   onOpen,
+  more,
 }: {
   comment: ReviewComment;
   data: WorkspaceSnapshot;
   onLocate: (id: string) => void;
   onOpen?: (id: string) => void;
+  more?:
+    | { count: number; expanded: boolean; toggle: () => void; id: string }
+    | undefined;
 }) {
   const role = roles[c.reviewerId];
   const slide = data.slides.find((s) => s.id === c.relatedSlideIds[0]);
@@ -108,7 +112,6 @@ function Comment({
       <div className="comment-main">
         <div className="comment-author">
           <b>{role?.name ?? c.reviewerId}</b>
-          <span>AI 点评人</span>
           <span className="page-badge">
             第 {String(slide?.index ?? "—")} 页
           </span>
@@ -171,6 +174,16 @@ function Comment({
             <Link size={18} />
             定位页面
           </button>
+          {more && (
+            <button
+              className="more-comments-button"
+              aria-expanded={more.expanded}
+              aria-controls={more.id}
+              onClick={more.toggle}
+            >
+              {more.expanded ? "收起评论" : "更多评论"}（{more.count}）
+            </button>
+          )}
         </div>
         <span className="basis">
           基于 V
@@ -198,6 +211,7 @@ export function Comments({
 }) {
   const commentId = url.searchParams.get("comment");
   const [comments, setComments] = useState(data.comments);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -233,8 +247,6 @@ export function Comments({
       if (focusId.current) {
         const target = document.getElementById(`comment-${focusId.current}`);
         if (target) {
-          const group = target.closest("details");
-          if (group instanceof HTMLDetailsElement) group.open = true;
           target.focus({ preventScroll: true });
         }
       }
@@ -315,25 +327,44 @@ export function Comments({
                       data={data}
                       onLocate={onLocate}
                       onOpen={open}
+                      more={
+                        reviewerComments.length > 1
+                          ? {
+                              count: reviewerComments.length - 1,
+                              expanded: Boolean(expanded[reviewerId]),
+                              id: `more-${reviewerId}`,
+                              toggle: () =>
+                                setExpanded((prev) => ({
+                                  ...prev,
+                                  [reviewerId]: !prev[reviewerId],
+                                })),
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                   {reviewerComments.length > 1 && (
-                    <details className="reviewer-more">
-                      <summary>
-                        更多评论（{reviewerComments.length - 1}）
-                      </summary>
-                      <div className="reviewer-comments">
-                        {reviewerComments.slice(1).map((comment) => (
-                          <Comment
-                            key={comment.id}
-                            comment={comment}
-                            data={data}
-                            onLocate={onLocate}
-                            onOpen={open}
-                          />
-                        ))}
+                    <div
+                      className="reviewer-more"
+                      id={`more-${reviewerId}`}
+                      data-expanded={Boolean(expanded[reviewerId])}
+                      aria-hidden={!expanded[reviewerId]}
+                      inert={!expanded[reviewerId]}
+                    >
+                      <div className="reviewer-more-clip">
+                        <div className="reviewer-comments">
+                          {reviewerComments.slice(1).map((comment) => (
+                            <Comment
+                              key={comment.id}
+                              comment={comment}
+                              data={data}
+                              onLocate={onLocate}
+                              onOpen={open}
+                            />
+                          ))}
+                        </div>
                       </div>
-                    </details>
+                    </div>
                   )}
                 </section>
               );
@@ -359,9 +390,6 @@ export function Comments({
           onLocate={onLocate}
         />
       )}
-      <footer className="review-footer">
-        AI 建议供参考，最终判断由你决定。
-      </footer>
     </>
   );
 }
@@ -591,7 +619,6 @@ function ThreadDetail({
             <div>
               <div className="comment-author">
                 <b>{r.author === "user" ? "我" : role?.name}</b>
-                {r.author !== "user" && <span>AI 点评人</span>}
               </div>
               <span className="reply-role">
                 {r.author === "user" ? "汇报人" : role?.title}

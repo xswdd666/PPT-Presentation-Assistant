@@ -83,7 +83,9 @@ it("05 browser: selection, zoom, cancel, diff, real acceptance, script formattin
       expect(rects.every((n) => Math.abs(n) < 0.1)).toBe(true);
     }
     await target.evaluate((node) => {
-      const text = node.firstChild;
+      const text = document
+        .createTreeWalker(node, NodeFilter.SHOW_TEXT)
+        .nextNode();
       if (!text) throw new Error("Missing selection text");
       const r = document.createRange();
       r.setStart(text, 2);

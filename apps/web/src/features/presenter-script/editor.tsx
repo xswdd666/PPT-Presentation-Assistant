@@ -56,6 +56,19 @@ export function PresenterScriptEditor({
   latest.current = doc;
   const saved = useRef(JSON.stringify(initial));
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    // A background AI batch may arrive while this page is open. Only replace a clean editor.
+    if (
+      initial.revision <= revision.current ||
+      JSON.stringify(latest.current) !== saved.current ||
+      localStorage.getItem(storageKey)
+    )
+      return;
+    revision.current = initial.revision;
+    latest.current = initial;
+    saved.current = JSON.stringify(initial);
+    setDoc(initial);
+  }, [initial.revision]);
   const [annotation, setAnnotation] = useState("");
   function persist() {
     if (blocked.current) return chain.current;

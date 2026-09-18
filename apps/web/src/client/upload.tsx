@@ -328,15 +328,6 @@ export function Upload({
         {(["goal", "response"] as const).map((field) => (
           <label key={field}>
             {field === "goal" ? "汇报目标" : "期望听众回应"}{" "}
-            <span>
-              {state[field].confirmed
-                ? "用户确认"
-                : state[field].suggestion
-                  ? "AI 建议 · 可修改"
-                  : running
-                    ? "AI 建议生成中…"
-                    : "可选 · 留空由 AI 建议"}
-            </span>
             <textarea
               maxLength={5000}
               value={values[field]}
@@ -434,9 +425,6 @@ export function Upload({
           </button>
         )}
       </div>
-      <p className="privacy">
-        开始分析将把文稿文字、备注和汇报背景发送至配置的模型服务。当前默认流程为文本分析，未接入完整页面渲染与视觉分析。
-      </p>
     </div>
   );
 }

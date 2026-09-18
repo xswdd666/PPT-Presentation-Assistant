@@ -1,4 +1,9 @@
 import { replaceDocumentRange } from "../client/script-document.js";
+import {
+  ManuscriptGenerator,
+  queueManuscript,
+  manuscriptStatus,
+} from "./manuscript.js";
 import { textDiff } from "../features/slide-rewrite/diff.js";
 import { resolve } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -49,6 +54,7 @@ export class WorkspaceService {
   readonly storage: LocalObjectStorage;
   readonly store: LocalWorkspaceStore;
   private working = false;
+  protected manuscripts: ManuscriptGenerator;
   constructor(
     directory: string,
     readonly model: JsonModelGateway,
@@ -56,6 +62,7 @@ export class WorkspaceService {
   ) {
     this.storage = new LocalObjectStorage(`${directory}/objects`);
     this.store = new LocalWorkspaceStore(directory);
+    this.manuscripts = new ManuscriptGenerator(this.store, model);
   }
   private workflow(repository: WorkflowRepository) {
     return new DefaultProjectWorkflow({
@@ -99,6 +106,12 @@ export class WorkspaceService {
         .filter((c) => d.versions[c.deckVersionId]?.projectId === projectId)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
       documents: d.documents[projectId] ?? {},
+      ...(d.scriptGenerations?.[projectId]?.deckVersionId === version?.id &&
+      d.scriptGenerations?.[projectId]
+        ? {
+            scriptGeneration: manuscriptStatus(d.scriptGenerations[projectId]),
+          }
+        : {}),
       warnings: d.warnings[version?.id ?? ""] ?? [],
       reviewers: d.routes[projectId] ?? [],
     };
@@ -196,6 +209,8 @@ export class WorkspaceService {
           )
             Reflect.deleteProperty(d.threads, id);
         Reflect.deleteProperty(d.documents, projectId);
+        if (d.scriptGenerations)
+          Reflect.deleteProperty(d.scriptGenerations, projectId);
         Reflect.deleteProperty(d.uploadStates, projectId);
         Reflect.deleteProperty(d.routes, projectId);
         Reflect.deleteProperty(d.projects, projectId);
@@ -628,7 +643,10 @@ export class WorkspaceService {
           j.stage !== "completed" &&
           this.uploadState(data, j.projectId).analysisRequested,
       );
-      if (!job) return;
+      if (!job) {
+        await this.manuscripts.runNext();
+        return;
+      }
       const attempt = this.uploadState(data, job.projectId).attempt;
       const current = (d: LocalWorkspaceData) =>
         this.uploadState(d, job.projectId).attempt === attempt &&
@@ -1078,6 +1096,11 @@ export class WorkspaceService {
         );
         return version;
       },
+    );
+  }
+  async generateManuscript(projectId: string) {
+    return this.store.transaction((d) =>
+      manuscriptStatus(queueManuscript(d, projectId, true)),
     );
   }
   async saveDocument(projectId: string, document: ScriptDocument) {

@@ -4,6 +4,7 @@ import type {
 } from "@deck-rehearsal/db";
 import type { WorkerData, WorkerStore } from "@deck-rehearsal/worker";
 import { emptyWorkerData } from "@deck-rehearsal/worker";
+import { queueManuscript } from "./manuscript.js";
 
 export type IntegratedData = LocalWorkspaceData & {
   aiWorker?: WorkerData;
@@ -125,6 +126,7 @@ export class WorkspaceWorkerStore implements WorkerStore {
           job.failedSlideIds = output.failedSlides.map((page) => page.slideId);
           job.stage = "completed";
           job.processedSlides = job.totalSlides;
+          queueManuscript(d, generation.projectId);
         } else {
           state.stage =
             generation.state === "queued"

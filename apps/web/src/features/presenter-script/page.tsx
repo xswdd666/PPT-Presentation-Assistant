@@ -25,13 +25,20 @@ export function ScriptPage({
   onError: (s: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const total = Object.values(documents).reduce((n, d) => n + d.text.length, 0);
+  const [full, setFull] = useState(true);
+  const total = slides.reduce(
+    (n, s) => n + (documents[s.id]?.text.length ?? 0),
+    0,
+  );
   return (
     <div className="content-page script-page">
-      <h1>逐页讲稿</h1>
+      <h1>{full ? "整份演讲稿" : "逐页讲稿"}</h1>
       <p>
         {total} 字 · 预计 {Math.ceil(total / 220)} 分钟
       </p>
+      <button className="button" onClick={() => setFull(!full)}>
+        {full ? "逐页编辑" : "通读整份讲稿"}
+      </button>
       <input
         aria-label="搜索讲稿"
         placeholder="搜索页面标题或讲稿"
@@ -50,7 +57,10 @@ export function ScriptPage({
             <button
               key={s.id}
               aria-current={slide.id === s.id ? "page" : undefined}
-              onClick={() => onSelect(s.id)}
+              onClick={() => {
+                onSelect(s.id);
+                setFull(false);
+              }}
             >
               第 {s.index} 页 · {documents[s.id]?.text.length ?? 0} 字 · 约{" "}
               {Math.ceil(((documents[s.id]?.text.length ?? 0) / 220) * 60)} 秒
@@ -58,24 +68,52 @@ export function ScriptPage({
             </button>
           ))}
       </nav>
-      <PresenterScriptEditor
-        key={slide.id}
-        projectId={projectId}
-        slide={slide}
-        document={
-          documents[slide.id] ?? {
-            slideId: slide.id,
-            revision: 0,
-            text: "",
-            marks: [],
-            annotations: [],
-            updatedAt: "",
+      {full ? (
+        <div className="full-manuscript">
+          {slides
+            .filter((s) =>
+              (
+                (documents[s.id]?.text ?? "") +
+                s.elements.map((e) => e.text ?? "").join(" ")
+              ).includes(query),
+            )
+            .map((s) => (
+              <article key={s.id}>
+                <header>
+                  <h2>第 {s.index} 页</h2>
+                  <button
+                    onClick={() => {
+                      onSelect(s.id);
+                      setFull(false);
+                    }}
+                  >
+                    编辑本页
+                  </button>
+                </header>
+                <p>{documents[s.id]?.text || "本页讲稿待生成"}</p>
+              </article>
+            ))}
+        </div>
+      ) : (
+        <PresenterScriptEditor
+          key={slide.id}
+          projectId={projectId}
+          slide={slide}
+          document={
+            documents[slide.id] ?? {
+              slideId: slide.id,
+              revision: 0,
+              text: "",
+              marks: [],
+              annotations: [],
+              updatedAt: "",
+            }
           }
-        }
-        onSelection={onSelection}
-        onSaved={onSaved}
-        onError={onError}
-      />
+          onSelection={onSelection}
+          onSaved={onSaved}
+          onError={onError}
+        />
+      )}
     </div>
   );
 }

@@ -21,7 +21,49 @@ const all = (node: Element | Document, ns: string, tag: string): Element[] =>
 const first = (node: Element | Document, ns: string, tag: string) =>
   all(node, ns, tag)[0];
 const num = (node: Element | undefined, name: string, fallback = 0) =>
-  Number(node?.getAttribute(name) ?? fallback);
+  Number(node?.getAttribute(name) || fallback);
+const children = (node: Element) =>
+  Array.from(node.childNodes).filter((n): n is Element => n.nodeType === 1);
+const child = (node: Element | undefined, tag: string) =>
+  node && children(node).find((n) => n.localName === tag);
+function richText(
+  shape: Element,
+  inheritedSize = 2400,
+): NonNullable<SlideElement["paragraphs"]> {
+  return paragraphs(shape).map((p) => {
+    const defaults = first(p, A, "defRPr");
+    return {
+      align: first(p, A, "pPr")?.getAttribute("algn") || "l",
+      runs: children(p)
+        .filter((r) => ["r", "fld", "br"].includes(r.localName ?? ""))
+        .map((r) => {
+          const props = first(r, A, "rPr");
+          const attr = (key: string, fallback: string) =>
+            props?.getAttribute(key) || defaults?.getAttribute(key) || fallback;
+          return {
+            text:
+              r.localName === "br"
+                ? "\n"
+                : (first(r, A, "t")?.textContent ?? ""),
+            fontSize: Number(attr("sz", String(inheritedSize))) / 100,
+            bold: attr("b", "0") === "1",
+            italic: attr("i", "0") === "1",
+            color:
+              (props && first(props, A, "srgbClr")?.getAttribute("val")) ||
+              (defaults &&
+                first(defaults, A, "srgbClr")?.getAttribute("val")) ||
+              "000000",
+            fontFamily:
+              (props &&
+                (
+                  first(props, A, "ea") ?? first(props, A, "latin")
+                )?.getAttribute("typeface")) ||
+              undefined,
+          };
+        }),
+    };
+  });
+}
 const xml = (source: string): Document => {
   if (/<!DOCTYPE|<!ENTITY/i.test(source))
     throw new Error("不支持含外部实体的文件");
@@ -102,8 +144,11 @@ function paragraphs(shape: Element): Element[] {
 function shapeText(shape: Element) {
   return paragraphs(shape)
     .map((p) =>
-      all(p, A, "t")
-        .map((t) => t.textContent ?? "")
+      children(p)
+        .filter((r) => ["r", "fld", "br"].includes(r.localName ?? ""))
+        .map((r) =>
+          r.localName === "br" ? "\n" : (first(r, A, "t")?.textContent ?? ""),
+        )
         .join(""),
     )
     .join("\n");
@@ -166,15 +211,56 @@ export class OpenXmlPptxProcessor implements PptxProcessor {
   }
   async parse(file: Uint8Array, versionId: string) {
     const { zip, presentation, paths } = await open(file);
+    const palette: Record<string, string> = {
+      dk1: "000000",
+      lt1: "FFFFFF",
+      dk2: "1F497D",
+      lt2: "EEECE1",
+    };
+    let themeLines: Element[] = [];
+    if (zip.file("ppt/theme/theme1.xml")) {
+      const theme = await read(zip, "ppt/theme/theme1.xml");
+      const lineList = first(theme, A, "lnStyleLst");
+      themeLines = lineList ? children(lineList) : [];
+      const scheme = first(
+        await read(zip, "ppt/theme/theme1.xml"),
+        A,
+        "clrScheme",
+      );
+      for (const entry of scheme ? children(scheme) : []) {
+        const color =
+          child(entry, "srgbClr")?.getAttribute("val") ||
+          child(entry, "sysClr")?.getAttribute("lastClr");
+        if (color && entry.localName) palette[entry.localName] = color;
+      }
+    }
+    const paint = (fill: Element | undefined) => {
+      const direct = child(fill, "srgbClr")?.getAttribute("val");
+      const name = child(fill, "schemeClr")?.getAttribute("val");
+      const aliases: Record<string, string> = {
+        tx1: "dk1",
+        tx2: "dk2",
+        bg1: "lt1",
+        bg2: "lt2",
+      };
+      return direct || (name ? palette[aliases[name] ?? name] : undefined);
+    };
     const size = first(presentation, P, "sldSz");
     const width = num(size, "cx", 12192000);
     const height = num(size, "cy", 6858000);
+    const defaultStyle = first(presentation, P, "defaultTextStyle");
+    const inheritedSize = num(
+      defaultStyle &&
+        first(child(defaultStyle, "lvl1pPr") ?? defaultStyle, A, "defRPr"),
+      "sz",
+      2400,
+    );
     const slides: Slide[] = [];
     for (const [index, path] of paths.entries()) {
       const doc = await read(zip, path);
       const id = stableId(path);
-      const shapes = ["sp", "pic", "graphicFrame", "cxnSp"].flatMap((tag) =>
-        all(doc, P, tag),
+      const shapes = all(doc, P, "*").filter((node) =>
+        ["sp", "pic", "graphicFrame", "cxnSp"].includes(node.localName ?? ""),
       );
       const elements: SlideElement[] = shapes.map((shape) => {
         const xfrm = first(shape, A, "xfrm") ?? first(shape, P, "xfrm");
@@ -184,6 +270,41 @@ export class OpenXmlPptxProcessor implements PptxProcessor {
         const props = first(shape, A, "rPr") ?? first(shape, A, "defRPr");
         const placeholder = first(shape, P, "ph")?.getAttribute("type");
         const editable = isEditable(shape) && Boolean(xfrm);
+        const spPr = child(shape, "spPr");
+        const line = child(spPr, "ln");
+        const lineRef = child(child(shape, "style"), "lnRef");
+        const themeLine = themeLines[num(lineRef, "idx") - 1];
+        const bodyPr = first(shape, A, "bodyPr");
+        const bounds = {
+          x: num(off, "x"),
+          y: num(off, "y"),
+          width: num(ext, "cx"),
+          height: num(ext, "cy"),
+        };
+        let parent = shape.parentNode;
+        while (
+          parent?.nodeType === 1 &&
+          (parent as Element).localName === "grpSp"
+        ) {
+          const groupProperties = child(parent as Element, "grpSpPr");
+          const transform =
+            groupProperties && first(groupProperties, A, "xfrm");
+          if (transform) {
+            const origin = child(transform, "off"),
+              extent = child(transform, "ext"),
+              childOrigin = child(transform, "chOff"),
+              childExtent = child(transform, "chExt");
+            const sx = num(extent, "cx", 1) / num(childExtent, "cx", 1),
+              sy = num(extent, "cy", 1) / num(childExtent, "cy", 1);
+            bounds.x =
+              num(origin, "x") + (bounds.x - num(childOrigin, "x")) * sx;
+            bounds.y =
+              num(origin, "y") + (bounds.y - num(childOrigin, "y")) * sy;
+            bounds.width *= sx;
+            bounds.height *= sy;
+          }
+          parent = parent.parentNode;
+        }
         return {
           id: elementId(id, shape),
           slideId: id,
@@ -195,12 +316,43 @@ export class OpenXmlPptxProcessor implements PptxProcessor {
                 : placeholder === "title" || placeholder === "ctrTitle"
                   ? "title"
                   : "body",
-          bounds: {
-            x: num(off, "x"),
-            y: num(off, "y"),
-            width: num(ext, "cx"),
-            height: num(ext, "cy"),
-          },
+          bounds,
+          geometry: child(spPr, "prstGeom")?.getAttribute("prst") || undefined,
+          fill: paint(child(spPr, "solidFill")),
+          fillOpacity: Math.min(
+            1,
+            Math.max(
+              0,
+              num(
+                child(spPr, "solidFill") &&
+                  first(child(spPr, "solidFill") as Element, A, "alpha"),
+                "val",
+                100000,
+              ) / 100000,
+            ),
+          ),
+          stroke: child(line, "noFill")
+            ? undefined
+            : (paint(child(line, "solidFill")) ??
+              (num(lineRef, "idx") > 0 ? paint(lineRef) : undefined)),
+          strokeWidth: num(line, "w", num(themeLine, "w", 12700)),
+          headEnd: child(line, "headEnd")?.getAttribute("type") || "none",
+          tailEnd: child(line, "tailEnd")?.getAttribute("type") || "none",
+          flipH: xfrm?.getAttribute("flipH") === "1",
+          flipV: xfrm?.getAttribute("flipV") === "1",
+          rotation: num(xfrm, "rot") / 60000,
+          ...(text
+            ? {
+                paragraphs: richText(shape, inheritedSize),
+                textInsets: {
+                  left: num(bodyPr, "lIns", 91440),
+                  top: num(bodyPr, "tIns", 45720),
+                  right: num(bodyPr, "rIns", 91440),
+                  bottom: num(bodyPr, "bIns", 45720),
+                },
+                verticalAlign: bodyPr?.getAttribute("anchor") || "t",
+              }
+            : {}),
           ...(text ? { text } : {}),
           editable,
           contentHash: hash(new XMLSerializer().serializeToString(shape)),

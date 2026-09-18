@@ -174,11 +174,81 @@ it("04 workbench: deep links, virtual pages, splitters, reply lifecycle, focus r
     await page.keyboard.press("ArrowUp");
     await ui(horizontal).toHaveAttribute("aria-valuenow", "66");
     const group = page.locator(".reviewer-comment-group").first();
-    await ui(group.locator("summary")).toContainText("更多评论（11）");
+    await ui(page.getByText("AI 点评人", { exact: true })).toHaveCount(0);
+    const commentBody = group.locator(".comment-body").first();
+    await commentBody.hover();
+    const passiveComment = await commentBody.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { translate: style.translate, shadow: style.boxShadow };
+    });
+    expect(passiveComment).toEqual({ translate: "none", shadow: "none" });
+    const action = group.getByRole("button", { name: /定位第/ }).first();
+    const actionColor = await action.evaluate(
+      (node) => getComputedStyle(node).color,
+    );
+    await action.hover();
+    await ui(action).toHaveCSS("color", "rgb(18, 63, 108)");
+    const actionHover = await action.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        color: style.color,
+        translate: style.translate,
+        shadow: style.boxShadow,
+      };
+    });
+    expect(actionHover).toMatchObject({
+      color: "rgb(18, 63, 108)",
+      translate: "none",
+      shadow: "none",
+    });
+    expect(actionHover.color).not.toBe(actionColor);
+    const moreButton = group.getByRole("button", { name: "更多评论（11）" });
+    await ui(moreButton).toBeVisible();
     await ui(group.locator(".comment").first()).toBeVisible();
     await ui(group.locator(".comment").nth(1)).toBeHidden();
-    await group.locator("summary").click();
+    await moreButton.click();
+    const expansion = await group
+      .locator(".reviewer-more")
+      .evaluate(async (node) => {
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        const motion = node
+          .getAnimations()
+          .find(
+            (animation) =>
+              animation instanceof CSSTransition &&
+              animation.transitionProperty === "grid-template-rows",
+          );
+        if (!motion) return null;
+        motion.pause();
+        motion.currentTime = 0;
+        const start = node.getBoundingClientRect().height;
+        motion.currentTime = 180;
+        const middle = node.getBoundingClientRect().height;
+        motion.finish();
+        const end = node.getBoundingClientRect().height;
+        return { start, middle, end };
+      });
+    expect(expansion).not.toBeNull();
+    if (!expansion) throw new Error("No layout expansion transition");
+    expect(expansion.start).toBeLessThan(1);
+    expect(expansion.middle).toBeGreaterThan(1);
+    expect(expansion.middle).toBeLessThan(expansion.end - 1);
     await ui(group.locator(".comment")).toHaveCount(12);
+    const nestedComments = group.locator(".reviewer-comments");
+    await ui(nestedComments).toHaveCSS(
+      "background-color",
+      "rgb(232, 237, 242)",
+    );
+    await ui(nestedComments).toHaveCSS("border-left-width", "0px");
+    const groupBox = await group.boundingBox();
+    const nestedBox = await nestedComments.boundingBox();
+    expect(groupBox).not.toBeNull();
+    expect(nestedBox).not.toBeNull();
+    if (!nestedBox || !groupBox) throw new Error("Missing comment bounds");
+    expect(nestedBox.width / groupBox.width).toBeCloseTo(0.9, 2);
+    expect(nestedBox.x).toBeGreaterThan(groupBox.x);
     const sixthComment = page.locator("#comment-comment-six");
     await sixthComment.scrollIntoViewIfNeeded();
     await sixthComment

@@ -8,6 +8,91 @@ import { OpenXmlPptxProcessor } from "./index.js";
 import { makeFixture } from "./testing.js";
 const engine = new OpenXmlPptxProcessor();
 describe("real PPTX contract", () => {
+  it("preserves the transparent cover overlay so the original photo stays visible", async () => {
+    const zip = await JSZip.loadAsync(await makeFixture(1, true));
+    const path = "ppt/slides/slide1.xml";
+    zip.file(
+      path,
+      (await present(zip.file(path) ?? undefined).async("string")).replace(
+        "</p:spTree>",
+        '<p:sp><p:nvSpPr><p:cNvPr id="99"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="1000000"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:schemeClr val="bg2"><a:alpha val="55000"/></a:schemeClr></a:solidFill></p:spPr></p:sp></p:spTree>',
+      ),
+    );
+    const file = await zip.generateAsync({ type: "uint8array" });
+    const slide = present((await engine.parse(file, "v1")).slides[0]);
+    const photo = present(slide.elements.find((e) => e.kind === "image"));
+    expect((await engine.image(file, slide.id, photo.id)).type).toBe(
+      "image/png",
+    );
+    expect(slide.elements.at(-1)).toMatchObject({ fillOpacity: 0.55 });
+  });
+  it("resolves grouped coordinates, theme black, inherited font size and explicit line breaks", async () => {
+    const zip = await JSZip.loadAsync(await makeFixture(1));
+    const path = "ppt/slides/slide1.xml";
+    zip.file(
+      path,
+      (await present(zip.file(path) ?? undefined).async("string")).replace(
+        "</p:spTree>",
+        '<p:grpSp><p:grpSpPr><a:xfrm><a:off x="1000" y="2000"/><a:ext cx="200" cy="200"/><a:chOff x="0" y="0"/><a:chExt cx="100" cy="100"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="98"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="30" cy="40"/></a:xfrm><a:prstGeom prst="ellipse"/><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:rPr b="1"/><a:t>标题</a:t></a:r><a:br/><a:r><a:t>正文</a:t></a:r></a:p></p:txBody></p:sp></p:grpSp></p:spTree>',
+      ),
+    );
+    const slide = present(
+      (
+        await engine.parse(
+          await zip.generateAsync({ type: "uint8array" }),
+          "v1",
+        )
+      ).slides[0],
+    );
+    expect(slide.elements.at(-1)).toMatchObject({
+      fill: "000000",
+      bounds: { x: 1020, y: 2040, width: 60, height: 80 },
+      text: "标题\n正文",
+      paragraphs: [
+        {
+          runs: [{ bold: true }, { text: "\n" }, { text: "正文", bold: false }],
+        },
+      ],
+    });
+  });
+  it("preserves mixed text runs and solid ellipse geometry in drawing order", async () => {
+    const zip = await JSZip.loadAsync(await makeFixture(1));
+    const path = "ppt/slides/slide1.xml";
+    const source = await present(zip.file(path) ?? undefined).async("string");
+    zip.file(
+      path,
+      source.replace(
+        "</p:spTree>",
+        '<p:sp><p:nvSpPr><p:cNvPr id="99" name="black circle"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="300"/></a:xfrm><a:prstGeom prst="ellipse"/><a:solidFill><a:srgbClr val="000000"/></a:solidFill></p:spPr></p:sp></p:spTree>',
+      ),
+    );
+    const slide = present(
+      (
+        await engine.parse(
+          await zip.generateAsync({ type: "uint8array" }),
+          "v1",
+        )
+      ).slides[0],
+    );
+    expect(slide.elements.at(-1)).toMatchObject({
+      geometry: "ellipse",
+      fill: "000000",
+    });
+    const mixed = present(
+      slide.elements.find((e) => e.text?.startsWith("本季度")),
+    );
+    expect(mixed).toMatchObject({
+      paragraphs: [
+        {
+          runs: [
+            { text: "本季度", bold: true },
+            { text: "转化率提升 20%", bold: false },
+            { text: "，下一阶段继续验证留存。", bold: false },
+          ],
+        },
+      ],
+    });
+  });
   it("extracts original embedded PNG by stable slide and image identifiers", async () => {
     const file = await makeFixture(1, true);
     const slide = present((await engine.parse(file, "v1")).slides[0]);

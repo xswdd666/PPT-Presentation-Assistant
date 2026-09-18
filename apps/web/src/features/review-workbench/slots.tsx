@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { elementStyle } from "../slide-rewrite/selection.js";
+import {
+  elementStyle,
+  SlideShape,
+  SlideText,
+} from "../slide-rewrite/selection.js";
 import type { ReactNode } from "react";
 import type {
   ScriptDocument,
@@ -18,10 +22,12 @@ export interface WorkbenchSlots {
   presenterScriptEditor?: (props: WorkbenchSlotProps) => ReactNode;
 }
 export function ThumbnailRail({
+  projectId,
   slides,
   selectedId,
   onSelect,
 }: {
+  projectId: string;
   slides: Slide[];
   selectedId: string | undefined;
   onSelect: (id: string) => void;
@@ -97,21 +103,40 @@ export function ThumbnailRail({
               onSelect(id);
             }}
           >
-            <div className="mini-slide" aria-hidden="true">
-              {s.elements
-                .filter((e) => e.text)
-                .map((e) => (
-                  <span
-                    key={e.id}
-                    className="mini-element"
-                    style={{
-                      ...elementStyle(s, e),
-                      color: "#153557",
-                    }}
-                  >
-                    {e.text}
-                  </span>
-                ))}
+            <div
+              className="mini-slide"
+              aria-hidden="true"
+              style={{
+                aspectRatio: `${String(s.width ?? 12192000)}/${String(s.height ?? 6858000)}`,
+              }}
+            >
+              {s.elements.map((e) => (
+                <div
+                  key={e.id}
+                  className="mini-element"
+                  style={{
+                    ...elementStyle(s, e),
+                  }}
+                >
+                  {e.kind === "image" ? (
+                    <img
+                      src={`/api/projects/${encodeURIComponent(projectId)}/image/${encodeURIComponent(s.deckVersionId)}/${encodeURIComponent(s.id)}/${encodeURIComponent(e.id)}`}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <>
+                      <SlideShape element={e} />
+                      {e.text && (
+                        <span style={{ position: "relative" }}>
+                          <SlideText slide={s} element={e} />
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
             <span className="thumb-caption">
               {String(s.index).padStart(2, "0")}

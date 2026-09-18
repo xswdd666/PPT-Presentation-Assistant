@@ -309,6 +309,8 @@ export function createApplication(
             .parse(await json(request));
           return send(await service.commitDraft(projectId, b.versionId, key));
         }
+        if (method === "POST" && action === "script-generation")
+          return send(await service.generateManuscript(projectId));
         if (method === "PUT" && action === "script")
           return send(
             await service.saveDocument(

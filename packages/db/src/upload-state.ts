@@ -1,4 +1,5 @@
 import type {
+  ScriptPage,
   WorkspaceData,
   WorkspaceSnapshot,
 } from "@deck-rehearsal/contracts";
@@ -40,8 +41,27 @@ export interface UploadState {
 export interface LocalWorkspaceData extends WorkspaceData {
   schemaVersion?: 2;
   uploadStates: Record<string, UploadState>;
+  scriptGenerations?: Record<
+    string,
+    ScriptGeneration & {
+      pages: ScriptPage[];
+      token?: string;
+      leaseUntil?: number;
+    }
+  >;
 }
-export type UploadSnapshot = WorkspaceSnapshot & { uploadState: UploadState };
+export interface ScriptGeneration {
+  projectId: string;
+  deckVersionId: string;
+  state: "queued" | "generating" | "completed" | "failed";
+  processedSlides: number;
+  totalSlides: number;
+  error?: string;
+}
+export type UploadSnapshot = WorkspaceSnapshot & {
+  uploadState: UploadState;
+  scriptGeneration?: ScriptGeneration;
+};
 export function newUploadState(): UploadState {
   const updatedAt = new Date().toISOString();
   return {

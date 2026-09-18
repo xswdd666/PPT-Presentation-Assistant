@@ -1,4 +1,5 @@
 import type {
+  ModelGateway,
   ReviewAnalysisModel,
   TextSelection,
 } from "@deck-rehearsal/contracts";
@@ -12,6 +13,7 @@ import { ReviewWorker, StoreAnalysisCache } from "@deck-rehearsal/worker";
 import { WorkspaceService, ServiceError } from "./service.js";
 import type { IntegratedData } from "./worker-store.js";
 import { WorkspaceWorkerStore } from "./worker-store.js";
+import { ManuscriptGenerator } from "./manuscript.js";
 
 /** Production assembly: real PPTX/domain/storage plus task 02's durable AI worker. */
 export class IntegratedWorkspaceService extends WorkspaceService {
@@ -21,10 +23,14 @@ export class IntegratedWorkspaceService extends WorkspaceService {
   constructor(
     directory: string,
     model: JsonModelGateway,
-    ai: ReviewAnalysisModel,
+    ai: ReviewAnalysisModel & Partial<Pick<ModelGateway, "createScript">>,
     namespace = "default",
   ) {
     super(directory, model);
+    if (ai.createScript)
+      this.manuscripts = new ManuscriptGenerator(this.store, {
+        createScript: ai.createScript.bind(ai),
+      });
     const store = new WorkspaceWorkerStore(this.store);
     this.worker = new ReviewWorker(
       store,
@@ -147,6 +153,7 @@ export class IntegratedWorkspaceService extends WorkspaceService {
         }
       }
       await this.worker.runNext();
+      await this.manuscripts.runNext();
     } finally {
       this.running = false;
     }

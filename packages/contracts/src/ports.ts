@@ -65,6 +65,9 @@ export interface ModelGateway {
     context: DeckContext;
     slides: Slide[];
     style: ScriptStyle;
+    /** Full deck stays in slides; only these pages are emitted in this batch. */
+    targetSlideIds?: string[];
+    previousNarration?: string;
   }): Promise<{ pages: ScriptPage[]; compressionAdvice?: string }>;
 }
 

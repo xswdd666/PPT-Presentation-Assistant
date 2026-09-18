@@ -6,6 +6,9 @@ import { SparkleIcon as Sparkle } from "@phosphor-icons/react/Sparkle";
 import {
   SlideTextSelectionLayer,
   elementStyle,
+  SlideText,
+  SlideShape,
+  supportedGeometry,
 } from "../features/slide-rewrite/selection.js";
 import { ScriptPage } from "../features/presenter-script/page.js";
 import type { ReactNode } from "react";
@@ -205,7 +208,6 @@ function Projects({
           <h1>
             {isNew ? "为下一次汇报，做好准备。" : "让好内容，被更好地理解。"}
           </h1>
-          <p>保留你的观点，和 AI 模拟听众一起打磨表达。</p>
         </div>
         {!isNew && (
           <Button primary onClick={() => navigate("/projects/new")}>
@@ -336,10 +338,6 @@ function Projects({
           </Button>
         </div>
       )}
-      <p className="privacy">
-        本地开发版 · 文稿保存在本机。开始 AI
-        分析后，文稿文字与背景将发送至你配置的模型服务。
-      </p>
     </main>
   );
 }
@@ -454,14 +452,15 @@ export function Workspace({
   useEffect(() => {
     if (
       !data ||
-      ["failed", "completed", "cancelled", "waiting_upload"].includes(
-        data.uploadState.stage,
-      )
+      (!["queued", "generating"].includes(data.scriptGeneration?.state ?? "") &&
+        ["failed", "completed", "cancelled", "waiting_upload"].includes(
+          data.uploadState.stage,
+        ))
     )
       return;
     const timer = setInterval(() => void load(), 2000);
     return () => clearInterval(timer);
-  }, [data?.uploadState.stage]);
+  }, [data?.uploadState.stage, data?.scriptGeneration?.state]);
   const slides = data?.slides ?? [];
   const slide =
     slides.find((s) => s.id === url.searchParams.get("slide")) ??
@@ -614,6 +613,7 @@ export function Workspace({
           演示文稿 <span>{slides.length} 页</span>
         </div>
         <ThumbnailRail
+          projectId={projectId}
           slides={slides}
           selectedId={slide?.id}
           onSelect={goSlide}
@@ -634,6 +634,51 @@ export function Workspace({
         </Button>
       </div>
       <section className="central">
+        {slide && ["review", "script"].includes(section) && (
+          <div className="manuscript-status" role="status">
+            {data.scriptGeneration?.state === "completed" ? (
+              <span>整份讲稿已就绪 · {slides.length} 页，可逐页修改</span>
+            ) : ["queued", "generating"].includes(
+                data.scriptGeneration?.state ?? "",
+              ) ? (
+              <>
+                <span className="manuscript-pulse" />
+                <span>
+                  正在串联整份讲稿 ·{" "}
+                  {data.scriptGeneration?.processedSlides ?? 0}/{slides.length}{" "}
+                  页
+                </span>
+                <progress
+                  aria-label="讲稿生成进度"
+                  value={data.scriptGeneration?.processedSlides ?? 0}
+                  max={slides.length}
+                />
+              </>
+            ) : (
+              <>
+                <span>
+                  {data.scriptGeneration?.state === "failed"
+                    ? `讲稿生成未完成，已保留 ${String(data.scriptGeneration.processedSlides)} 页`
+                    : "按整套 PPT 生成连贯讲稿，逐页预填"}
+                </span>
+                <Button
+                  onClick={() => {
+                    void api(`/projects/${projectId}/script-generation`, {})
+                      .then(load)
+                      .catch((e: unknown) => onError(String(e)));
+                  }}
+                >
+                  {data.scriptGeneration?.state === "failed"
+                    ? "重试讲稿"
+                    : "生成整份讲稿"}
+                </Button>
+              </>
+            )}
+            {section === "review" && (
+              <Button onClick={() => goSection("script")}>查看整份讲稿</Button>
+            )}
+          </div>
+        )}
         {section === "upload" ? (
           <Upload
             data={data}
@@ -1046,9 +1091,16 @@ function SlideCanvas({
                 }}
               />
             ) : (
-              (e.text ?? (
-                <span className="object-placeholder">图形 / 图表</span>
-              ))
+              <>
+                <SlideShape element={e} />
+                {e.text ? (
+                  <span style={{ position: "relative" }}>
+                    <SlideText slide={slide} element={e} />
+                  </span>
+                ) : !supportedGeometry.has(e.geometry ?? "") ? (
+                  <span className="object-placeholder">此图形暂不支持预览</span>
+                ) : null}
+              </>
             )}
           </div>
         ))}

@@ -142,6 +142,29 @@ export interface SlideElement {
   fontSize?: number;
   color?: string;
   bold?: boolean;
+  geometry?: string | undefined;
+  fill?: string | undefined;
+  fillOpacity?: number;
+  stroke?: string | undefined;
+  strokeWidth?: number;
+  rotation?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  headEnd?: string;
+  tailEnd?: string;
+  textInsets?: { left: number; top: number; right: number; bottom: number };
+  verticalAlign?: string;
+  paragraphs?: {
+    align?: string;
+    runs: {
+      text: string;
+      fontSize: number;
+      bold: boolean;
+      italic: boolean;
+      color: string;
+      fontFamily?: string | undefined;
+    }[];
+  }[];
 }
 
 export interface Slide {

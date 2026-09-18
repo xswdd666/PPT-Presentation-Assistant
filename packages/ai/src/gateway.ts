@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readFileSync } from "node:fs";
 import type {
   DeckContext,
   ModelGateway,
@@ -325,17 +326,39 @@ export class ReviewModelGateway implements ModelGateway, ReviewAnalysisModel {
   async createScript(
     input: Parameters<ModelGateway["createScript"]>[0],
   ): ReturnType<ModelGateway["createScript"]> {
+    const targets = input.targetSlideIds ?? input.slides.map((s) => s.id);
+    if (
+      !targets.length ||
+      new Set(targets).size !== targets.length ||
+      targets.some((id) => !input.slides.some((s) => s.id === id))
+    )
+      fail("invalid_input", "讲稿目标页面无效");
     const result = await this.generate(
-      "为每页生成口语讲稿与衔接语，仅用已有事实，保留所有页面ID，按目标时长分配用时。",
-      input,
+      readFileSync(new URL("./prompts/manuscript.md", import.meta.url), "utf8"),
+      {
+        context: input.context,
+        style: input.style,
+        targetSlideIds: targets,
+        previousNarration: input.previousNarration ?? "",
+        deck: input.slides.map((s) => ({
+          slideId: s.id,
+          index: s.index,
+          hidden: s.hidden,
+          text: s.elements
+            .map((e) => e.text ?? "")
+            .filter(Boolean)
+            .join("\n"),
+          notes: s.notes ?? "",
+          visualSummary: s.visualSummary ?? "",
+        })),
+      },
       scriptSchema,
       (result) => {
         if (
-          result.pages.length !== input.slides.length ||
-          new Set(result.pages.map((p) => p.slideId)).size !==
-            input.slides.length ||
+          result.pages.length !== targets.length ||
+          new Set(result.pages.map((p) => p.slideId)).size !== targets.length ||
           result.pages.some(
-            (p) => !input.slides.some((s) => s.id === p.slideId),
+            (p) => !targets.includes(p.slideId) || p.narration.length > 800,
           )
         )
           fail("invalid_output", "讲稿页面引用无效");
